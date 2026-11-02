@@ -36,16 +36,17 @@ const allKeys = await page.$$eval('input[data-param]', (els) => els.map((e) => e
 const morphKeys = allKeys.filter((k) => /^m[A-Z]/.test(k));
 const keys = allKeys.filter((k) => !/^m[A-Z]/.test(k));
 check('feature-shape (morph) sliders present', morphKeys.length >= 10, morphKeys.join(','));
+// morph influence is applied in the render loop: poll instead of fixed sleeps
+const infl = (n) => page.evaluate((n) => window.app.character.morphInfluence(n), n);
+const until = (fn, arg) => page.waitForFunction(fn, arg, { timeout: 8000 }).then(() => true, () => false);
 await page.fill('input[data-param=mEyeTilt]', '1');
-await page.waitForTimeout(700);
-const angry = await page.evaluate(() => window.app.character.morphInfluence('EYE_Angry'));
-check('eye-shape slider drives artist blendshape', angry > 0.4, `EYE_Angry=${angry.toFixed(2)}`);
+await until((n) => window.app.character.morphInfluence(n) > 0.4, 'EYE_Angry');
+check('eye-shape slider drives artist blendshape', (await infl('EYE_Angry')) > 0.4, `EYE_Angry=${(await infl('EYE_Angry')).toFixed(2)}`);
 await page.fill('input[data-param=mEyeTilt]', '0');
-await page.waitForTimeout(700);
-check('blendshape released when slider returns to 0', (await page.evaluate(() => window.app.character.morphInfluence('EYE_Angry'))) < 1e-3);
+check('blendshape released when slider returns to 0', await until((n) => window.app.character.morphInfluence(n) < 1e-3, 'EYE_Angry'));
 await page.click('[data-preset=cool]');
-await page.waitForTimeout(700);
-check('face preset applies several params', (await page.inputValue('input[data-param=faceLength]')) === '0.5' && (await page.evaluate(() => window.app.character.morphInfluence('EYE_Angry'))) > 0.2);
+const presetOk = await until((n) => window.app.character.morphInfluence(n) > 0.2, 'EYE_Angry');
+check('face preset applies several params', presetOk && (await page.inputValue('input[data-param=faceLength]')) === '0.5');
 await shot('02b-preset-cool');
 await page.click('[data-preset=default]');
 check('26 face parameters present', keys.length >= 26, `${keys.length}`);
