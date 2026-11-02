@@ -5,6 +5,33 @@ import { FaceShaper, type FaceParams } from './faceShape';
 import type { Subject } from './viewer';
 
 const MODELS = `${import.meta.env.BASE_URL}models/`;
+/** Artifact hosting only serves text, so that build ships models as base64 .txt. */
+const B64 = import.meta.env.VITE_B64_MODELS === '1';
+
+async function fetchModel(file: string, onProgress?: (f: number) => void): Promise<ArrayBuffer> {
+  const url = B64 ? `${MODELS}${file}.b64.txt` : `${MODELS}${file}`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`模型下载失败 ${res.status}: ${file}`);
+  const total = Number(res.headers.get('content-length')) || 0;
+  const reader = res.body!.getReader();
+  const chunks: Uint8Array[] = [];
+  let got = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value);
+    got += value.length;
+    if (total) onProgress?.(got / total);
+  }
+  const buf = new Uint8Array(got);
+  let o = 0;
+  for (const c of chunks) { buf.set(c, o); o += c.length; }
+  if (!B64) return buf.buffer;
+  const bin = atob(new TextDecoder().decode(buf).trim());
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out.buffer;
+}
 
 export interface OutfitDef {
   id: string;
@@ -116,7 +143,7 @@ export class Character implements Subject {
   static async load(onProgress?: (f: number) => void) {
     const loader = new GLTFLoader();
     loader.register((p) => new VRMLoaderPlugin(p));
-    const gltf = await loader.loadAsync(`${MODELS}base.vrm`, (e) => e.total && onProgress?.(e.loaded / e.total));
+    const gltf = await loader.parseAsync(await fetchModel('base.vrm', onProgress), '');
     const vrm = gltf.userData.vrm as VRM;
     VRMUtils.removeUnnecessaryVertices(gltf.scene);
     VRMUtils.rotateVRM0(vrm);
@@ -156,7 +183,7 @@ export class Character implements Subject {
 
   /** Load a skinned garment and bind it to this avatar's bones by name. */
   private async loadGarment(file: string) {
-    const gltf = await new GLTFLoader().loadAsync(`${MODELS}${file}`);
+    const gltf = await new GLTFLoader().parseAsync(await fetchModel(file), '');
     const group = new THREE.Group();
     group.name = `garment:${file}`;
     const skinned: THREE.SkinnedMesh[] = [];
