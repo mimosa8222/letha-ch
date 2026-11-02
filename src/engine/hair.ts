@@ -71,11 +71,13 @@ interface StrandSpec {
   startDir?: THREE.Vector3;
   start?: THREE.Vector3;
   collideSkull?: boolean;
+  flat?: boolean; // hugs the scalp (tied hair)
 }
 
 function growStrand(s: StrandSpec, volume: number): THREE.Vector3[] {
   const layer = (s.layer ?? 1.03) + volume * 0.04;
-  const p = s.start ? s.start.clone() : onSkull(s.az, s.el, layer);
+  // root starts just under the scalp cap and rises to its layer
+  const p = s.start ? s.start.clone() : onSkull(s.az, s.el, 1.006);
   // initial direction: down along the skull surface
   let d = s.startDir?.clone() ?? onSkull(s.az, s.el + 0.05, layer).sub(onSkull(s.az, s.el, layer)).normalize();
   const pts = [p.clone()];
@@ -168,9 +170,10 @@ function sideStrands(style: string, L: number): StrandSpec[] {
 function tieStrands(tie: THREE.Vector3, azFrom: number, azTo: number, n: number): StrandSpec[] {
   const out: StrandSpec[] = [];
   for (let i = 0; i < n; i++) {
-    for (const el of [0.12 * Math.PI, 0.32 * Math.PI, 0.55 * Math.PI]) {
-      const az = azFrom + ((azTo - azFrom) * (i + 0.5)) / n;
-      out.push({ az, el, w: 0.026, steer: tie, layer: 1.025, gravity: 0, len: 0.4 });
+    // only over the top/back of the skull — the scalp cap covers the sides, so nothing wraps over the ears
+    for (const el of [0.1 * Math.PI, 0.2 * Math.PI, 0.3 * Math.PI]) {
+      const az = azFrom + ((azTo - azFrom) * (i + 0.5 + (el > 1 ? 0.5 : 0))) / n;
+      out.push({ az, el, w: 0.026, steer: tie, layer: 1.016, gravity: 0, len: 0.4, flat: true });
     }
   }
   return out;
@@ -209,7 +212,7 @@ function backStrands(style: string, L: number): StrandSpec[] {
     case 'long': shell(0.92 - (L - 1) * 0.2, 0.1, 3, 20); break;
     case 'ponytail': {
       const tie = new THREE.Vector3(0, 1.545, -0.135);
-      out.push(...tieStrands(tie, Math.PI - 2.1, Math.PI + 2.1, 12));
+      out.push(...tieStrands(tie, Math.PI - 2.1, Math.PI + 2.1, 18));
       out.push(...tail(tie, new THREE.Vector3(0, -0.2, -1), 0.42 * L, 22, 0.022, 1));
       break;
     }
@@ -231,7 +234,7 @@ function backStrands(style: string, L: number): StrandSpec[] {
 }
 
 // ── geometry ──
-function strandGeometry(pts: THREE.Vector3[], w0: number, pos: number[], nor: number[], uv: number[], idx: number[]) {
+function strandGeometry(pts: THREE.Vector3[], w0: number, pos: number[], nor: number[], uv: number[], idx: number[], flat = false) {
   if (pts.length < 3) return;
   const curve = new THREE.CatmullRomCurve3(pts, false, 'centripetal');
   const S = Math.min(36, Math.max(8, pts.length));
@@ -246,8 +249,10 @@ function strandGeometry(pts: THREE.Vector3[], w0: number, pos: number[], nor: nu
     N.addScaledVector(T, -N.dot(T)).normalize();
     B.crossVectors(T, N).normalize();
     // pointed tip, slightly fuller in the middle
-    const w = w0 * Math.pow(1 - t, 0.7) * (1 + 0.25 * Math.sin(Math.PI * t)) + 0.0006;
-    const th = Math.max(0.0012, w * 0.22);
+    // roots grow out of the scalp (no open tube ends), pointed tips
+    const root = 0.35 + 0.65 * Math.min(1, t / 0.12);
+    const w = w0 * root * Math.pow(1 - t, 0.7) * (1 + 0.25 * Math.sin(Math.PI * t)) + 0.0006;
+    const th = flat ? 0.0012 : Math.max(0.0012, w * 0.22);
     for (let k = 0; k <= R; k++) {
       const a = (k / R) * Math.PI * 2;
       const ca = Math.cos(a), sa = Math.sin(a);
@@ -268,12 +273,12 @@ function strandGeometry(pts: THREE.Vector3[], w0: number, pos: number[], nor: nu
 
 /** Scalp cap so the head never shows between strands. */
 function capGeometry(style: HairStyle, pos: number[], nor: number[], uv: number[], idx: number[]) {
-  const tied = ['ponytail', 'twintail', 'bun'].includes(style.back);
   const A = 48, E = 16, base = pos.length / 3;
   for (let i = 0; i <= A; i++) {
     const az = (i / A) * Math.PI * 2;
     const front = (1 + Math.cos(az)) / 2; // 1 at front, 0 at back
-    const elMax = (0.3 + (tied ? 0.32 : 0.36) * (1 - front)) * Math.PI;
+    // natural hairline: high at the forehead, down over the temples, low at the nape
+    const elMax = (0.3 + 0.36 * (1 - front) + 0.08 * Math.sin(az) ** 2) * Math.PI;
     for (let j = 0; j <= E; j++) {
       const el = (j / E) * elMax;
       const p = onSkull(az, el, 1.012 + style.volume * 0.02);
@@ -356,7 +361,7 @@ export class ProceduralHair {
       ...sideStrands(style.side, style.sideLen),
       ...frontStrands(style.front, style.frontLen),
     ];
-    for (const s of specs) strandGeometry(growStrand(s, style.volume), s.w * (1 + style.volume * 0.4), pos, nor, uv, idx);
+    for (const s of specs) strandGeometry(growStrand(s, style.volume), s.w * (1 + style.volume * 0.4), pos, nor, uv, idx, s.flat);
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
     geo.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));

@@ -31,12 +31,12 @@ export class Viewer {
     this.renderer.domElement.style.touchAction = 'none';
 
     this.scene.background = new THREE.Color('#e9e4ee');
-    this.scene.add(new THREE.AmbientLight('#ffffff', 0.9));
-    const key = new THREE.DirectionalLight('#ffffff', 2.1);
+    this.scene.add(new THREE.AmbientLight('#ffffff', 0.7));
+    const key = new THREE.DirectionalLight('#ffffff', 1.7);
     key.position.set(0.6, 1.8, 2.2);
     this.scene.add(key);
     // soft back light so the character reads from every angle
-    const back = new THREE.DirectionalLight('#f1ecff', 1.1);
+    const back = new THREE.DirectionalLight('#f1ecff', 0.7);
     back.position.set(-0.4, 1.6, -2.2);
     this.scene.add(back);
     const floor = new THREE.Mesh(new THREE.CircleGeometry(0.75, 64), new THREE.MeshBasicMaterial({ color: '#d6cfdd' }));

@@ -3,6 +3,7 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { MToonMaterial, VRMLoaderPlugin, VRMUtils, type VRM } from '@pixiv/three-vrm';
 import { FaceShaper, type FaceParams } from './faceShape';
 import { ProceduralHair, defaultHair, type HairStyle } from './hair';
+import { morphWeights } from './faceMorphs';
 import type { Subject } from './viewer';
 
 const MODELS = `${import.meta.env.BASE_URL}models/`;
@@ -102,6 +103,9 @@ export class Character implements Subject {
   private blinkT = 0;
   readonly hair = new ProceduralHair();
   private originalHair: THREE.Mesh[] = [];
+  /** feature-shape morphs: target suffix → weight, re-applied every frame on top of expressions */
+  private shapeWeights = new Map<string, number>();
+  private morphMeshes: { mesh: THREE.Mesh; index: Map<string, number>; added: Map<number, number> }[] = [];
 
   private constructor(readonly vrm: VRM) {
     this.root = vrm.scene;
@@ -139,6 +143,16 @@ export class Character implements Subject {
     for (const mesh of find(/HAIR/)) for (const m of [mesh.material].flat()) this.prepTint(m as MToonMaterial, this.hairMats, 1.5, true);
     this.originalHair = [...new Set(find(/HAIR/))];
     vrm.scene.add(this.hair.group);
+    vrm.scene.traverse((o) => {
+      const m = o as THREE.Mesh;
+      if (!m.isMesh || !m.morphTargetDictionary || !m.morphTargetInfluences) return;
+      const index = new Map<string, number>();
+      for (const [k, i] of Object.entries(m.morphTargetDictionary)) {
+        const mm = k.match(/Fcl_(.+)$/);
+        if (mm) index.set(mm[1], i);
+      }
+      this.morphMeshes.push({ mesh: m, index, added: new Map() });
+    });
     this.hairMats.push(this.hair.material);
     for (const mesh of find(/EyeIris/)) for (const m of [mesh.material].flat()) this.prepTint(m as MToonMaterial, this.irisMats, 1.6);
 
@@ -232,6 +246,7 @@ export class Character implements Subject {
 
   async applyLook(look: Look) {
     this.setHair({ ...defaultHair(), ...look.hair });
+    this.shapeWeights = morphWeights(look.face);
     this.shaper.apply(look.face);
     this.tint(this.hairMats, look.hairColor);
     this.hair.outline.uniforms.color.value.set(look.hairColor).multiplyScalar(0.35);
@@ -253,6 +268,29 @@ export class Character implements Subject {
       const t = this.blinkT % 4.2;
       em.setValue('blink', t > 4.0 ? Math.sin(((t - 4.0) / 0.2) * Math.PI) : 0);
     }
+    // expressions own their morph targets each frame; feature shapes ride on top
+    for (const mm of this.morphMeshes) {
+      const inf = mm.mesh.morphTargetInfluences!;
+      for (const [i, w] of mm.added) inf[i] -= w;
+      mm.added.clear();
+    }
     this.vrm.update(dt);
+    for (const mm of this.morphMeshes) {
+      const inf = mm.mesh.morphTargetInfluences!;
+      for (const [name, w] of this.shapeWeights) {
+        const i = mm.index.get(name);
+        if (i === undefined || w <= 0) continue;
+        const before = inf[i];
+        inf[i] = Math.min(1, before + w);
+        mm.added.set(i, inf[i] - before);
+      }
+    }
+  }
+
+  /** Current influence of a feature morph (for tests). */
+  morphInfluence(name: string) {
+    const mm = this.morphMeshes[0];
+    const i = mm?.index.get(name);
+    return i === undefined ? 0 : mm.mesh.morphTargetInfluences![i];
   }
 }

@@ -67,7 +67,8 @@ for f in bm.faces:
         kill.append(f)
         continue
     c = mw @ f.calc_center_median()
-    if c.z < waist_z - 0.03 or c.z > neck.z - 0.005 or abs(c.x) > sleeve_x:
+    # keep the whole shoulder line (cutting at neck height opened a seam on the shoulders)
+    if c.z < waist_z - 0.03 or abs(c.x) > sleeve_x:
         kill.append(f)
 bmesh.ops.delete(bm, geom=kill, context="FACES")
 bmesh.ops.delete(bm, geom=[v for v in bm.verts if not v.link_faces], context="VERTS")
@@ -75,13 +76,13 @@ bmesh.ops.delete(bm, geom=[v for v in bm.verts if not v.link_faces], context="VE
 chest_z = spine.z + 0.2
 for v in bm.verts:
     w = mw @ v.co
-    if abs(w.x) < 0.135:  # torso
-        k = max(0.0, min(1.0, (chest_z - w.z) / (chest_z - waist_z)))
-        k = k * k * (3 - 2 * k)
-        v.co.x *= 1 - 0.1 * k
-        v.co.y = hips.y + (v.co.y - hips.y) * (1 - 0.03 * k)
-    else:  # sleeves: a little puff
-        v.co += v.normal * 0.006
+    # position-based only (never per-normal), so split seam vertices stay welded
+    k = max(0.0, min(1.0, (chest_z - w.z) / (chest_z - waist_z)))
+    k = k * k * (3 - 2 * k)
+    torso = 1 - max(0.0, min(1.0, (abs(w.x) - 0.1) / 0.05))  # fades out toward the sleeves
+    slim = torso * (0.07 + 0.06 * k)
+    v.co.x *= 1 - slim
+    v.co.y = hips.y + (v.co.y - hips.y) * (1 - 0.6 * slim)
 bm.to_mesh(bodice.data)
 bm.free()
 bodice.data.materials.clear()
@@ -160,7 +161,7 @@ def skirt_pt(u, v):
     # starts exactly on the waist outline, eases over the hips, flares to the hem
     hip_t = min(1.0, (top_z - z) / max(0.01, top_z - hip_z + 0.04))
     hip_t = hip_t * hip_t * (3 - 2 * hip_t)
-    r = ring_r(a) + 0.006 + 0.05 * hip_t + 0.1 * v ** 1.4
+    r = ring_r(a) + 0.005 + 0.035 * hip_t + 0.075 * v ** 1.4
     tri = abs(((u * pleats * 2) % 2) - 1)  # 0..1 triangle wave → knife pleats
     k = 1 + (0.004 + 0.06 * v) * (tri - 0.5)
     return Vector((math.sin(a) * r * k, cy - math.cos(a) * r * k, z))

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Character, OUTFITS } from '../engine/character';
 import { PARAMS } from '../engine/faceShape';
+import { FACE_PRESETS, MORPH_PARAMS } from '../engine/faceMorphs';
 import { BACK_STYLES, FRONT_STYLES, SIDE_STYLES, defaultHair } from '../engine/hair';
 import { Viewer, type Framing } from '../engine/viewer';
 import { useStore } from '../state/store';
@@ -81,6 +82,24 @@ export function App() {
         <div className="panel-body">
           {tab === 'face' && (
             <>
+              <h3>整脸预设</h3>
+              <div className="chips">
+                {FACE_PRESETS.map((pr) => (
+                  <button key={pr.id} className="chip" data-preset={pr.id}
+                    onClick={() => patch({ face: { ...Object.fromEntries([...PARAMS, ...MORPH_PARAMS].map((p) => [p.key, 0])), ...pr.face } })}>
+                    {pr.label}
+                  </button>
+                ))}
+              </div>
+              <h3>五官形状</h3>
+              {MORPH_PARAMS.map((p) => (
+                <label key={p.key} className="slider wide-label">
+                  <span>{p.label}</span>
+                  <input type="range" min={p.min} max={p.max} step={0.01} value={look.face[p.key] ?? 0}
+                    onChange={(e) => setFace(p.key, +e.target.value)} data-param={p.key} />
+                  <output>{Math.round((look.face[p.key] ?? 0) * 100)}</output>
+                </label>
+              ))}
               {groups.map((g) => (
                 <div key={g}>
                   <h3>{g}</h3>
@@ -98,7 +117,7 @@ export function App() {
                   ))}
                 </div>
               ))}
-              <button className="ghost wide" onClick={() => patch({ face: Object.fromEntries(PARAMS.map((p) => [p.key, 0])) })}>脸部归零</button>
+              <button className="ghost wide" onClick={() => patch({ face: Object.fromEntries([...PARAMS, ...MORPH_PARAMS].map((p) => [p.key, 0])) })}>脸部归零</button>
             </>
           )}
           {tab === 'hair' && (
