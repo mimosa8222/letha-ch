@@ -25,7 +25,12 @@ const shot = async (n) => { await page.waitForTimeout(600); await page.screensho
 await page.goto(base);
 await ready();
 check('model loads', true);
-check('rest pose has zero displacement', (await disp()) < 1e-6);
+const lethaDefault = await page.evaluate(() => ({ back: window.app.character.hair['key'].includes('flipbob'), radio: !!window.app.character.root.getObjectByName('props:radio')?.visible }));
+check('default look is Letha (flip bob + radio)', lethaDefault.back && lethaDefault.radio, JSON.stringify(lethaDefault));
+await page.click('nav.tabs button:has-text("捏脸")');
+await page.click('button:has-text("脸部归零")');
+await page.waitForTimeout(100);
+check('zeroed face has zero displacement', (await disp()) < 1e-6);
 await shot('01-full-default');
 
 // ── face params: each one must actually move vertices ──

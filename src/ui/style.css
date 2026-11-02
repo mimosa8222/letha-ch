@@ -115,3 +115,4 @@ button.wide { width: 100%; margin-top: 14px; }
 .tabs button { padding: 7px 2px; font-size: 13.5px; }
 .slider.wide-label { grid-template-columns: 1fr 34px; }
 .slider.wide-label span { grid-column: 1 / -1; margin-bottom: -10px; color: var(--muted); font-size: 12px; }
+.letha-btn { width: 100%; margin-top: 8px; background: #3a3247; border-color: var(--accent); color: var(--accent); font-weight: 600; min-height: 44px; }

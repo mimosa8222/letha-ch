@@ -5,7 +5,7 @@ import { FACE_PRESETS, MORPH_PARAMS } from '../engine/faceMorphs';
 import { HIGHLIGHT_STYLES, IRIS_STYLES, defaultEye } from '../engine/eyes';
 import { BACK_STYLES, FRONT_STYLES, SIDE_STYLES, defaultHair } from '../engine/hair';
 import { Viewer, type Framing } from '../engine/viewer';
-import { useStore } from '../state/store';
+import { lethaLook, useStore } from '../state/store';
 
 type Tab = 'face' | 'eye' | 'hair' | 'color' | 'outfit' | 'save';
 
@@ -85,6 +85,7 @@ export function App() {
         <div className="panel-body">
           {tab === 'face' && (
             <>
+              <button className="letha-btn" data-letha onClick={() => patch(lethaLook())}>一键还原 Letha 造型</button>
               <h3>整脸预设</h3>
               <div className="chips">
                 {FACE_PRESETS.map((pr) => (
@@ -137,6 +138,11 @@ export function App() {
                   <Range label="侧发长度" value={hair.sideLen} min={0.6} max={1.6} onChange={(v) => setHair({ sideLen: v })} id="sideLen" />
                   <Chips title="后发" list={BACK_STYLES} value={hair.back} onPick={(v) => setHair({ back: v })} id="back" />
                   <Range label="后发长度" value={hair.backLen} min={0.6} max={1.6} onChange={(v) => setHair({ backLen: v })} id="backLen" />
+                  <h3>发饰</h3>
+                  <div className="chips">
+                    <button className={`chip ${hair.headband ? 'on' : ''}`} onClick={() => setHair({ headband: !hair.headband })} data-acc="headband">灰色钩针发带</button>
+                    <button className={`chip ${hair.pins ? 'on' : ''}`} onClick={() => setHair({ pins: !hair.pins })} data-acc="pins">一字夹 ×2</button>
+                  </div>
                   <h3>整体</h3>
                   <Range label="蓬松度" value={hair.volume} min={0} max={1} onChange={(v) => setHair({ volume: v })} id="volume" />
                 </>
@@ -175,6 +181,10 @@ export function App() {
                   {look.outfit === o.id ? '● ' : '○ '}{o.label}
                 </button>
               ))}
+              <h3>配件</h3>
+              <div className="chips">
+                <button className={`chip ${look.props?.radio ? 'on' : ''}`} data-acc="radio" onClick={() => patch({ props: { ...look.props, radio: !look.props?.radio } })}>皮套收音机 + 耳机</button>
+              </div>
               {look.outfit === 'dress' && <Swatches title="连衣裙颜色" list={DRESS} value={look.dressColor} onPick={(c) => patch({ dressColor: c })} />}
             </>
           )}

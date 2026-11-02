@@ -47,7 +47,7 @@ print("landmarks", neck, hips, spine, l_upper_arm, l_lower_leg)
 
 waist_z = spine.z + 0.04  # natural waist
 sleeve_x = abs(l_upper_arm.x) + 0.11  # short puff-ish sleeve
-hem_z = l_lower_leg.z + 0.08          # just above the knee
+hem_z = l_lower_leg.z - 0.13          # mid-calf (Letha's 1960s dress)
 
 # ── bodice: copy torso skin ─────────────────────────────────────────────
 bodice = body.copy()
@@ -184,7 +184,7 @@ band_mat = make_mat("Waistband_CLOTH", (0.015, 0.02, 0.05))
 band.data.materials.append(band_mat)
 
 # collar: round collar lying on the shoulders, open at the front
-neck_r = 0.05
+neck_r = 0.053
 coll_mat = make_mat("Collar_CLOTH", (0.92, 0.9, 0.84))
 body_eval = body.evaluated_get(bpy.context.evaluated_depsgraph_get())
 
@@ -209,7 +209,7 @@ def collar_pt(u, v):
     k = math.sqrt(max(0, 1 - ((lobe - d) / lobe) ** 2)) if d < lobe else 1
     r = neck_r + (0.03 + 0.048 * k) * v
     x, y = math.sin(a) * r, neck.y - math.cos(a) * r * 0.8
-    return Vector((x, y, shoulder_z(x, y) + 0.01))
+    return Vector((x, y, shoulder_z(x, y) + 0.014))
 
 
 bm = bmesh.new()
@@ -223,9 +223,16 @@ for j in range(rows + 1):
     for i in range(seg + 1):
         pts[j][i].z = max(zs[i], pts[j][i].z - 0.004)
 grid = [[bm.verts.new(p) for p in row] for row in pts]
+uvl = bm.loops.layers.uv.new("UVMap")
+coord = {}
+for j in range(rows + 1):
+    for i in range(seg + 1):
+        coord[grid[j][i]] = (i / seg, 1 - j / rows)  # u along the collar, v: neck edge → outer edge
 for j in range(rows):
     for i in range(seg):
-        bm.faces.new((grid[j][i], grid[j][i + 1], grid[j + 1][i + 1], grid[j + 1][i]))
+        f = bm.faces.new((grid[j][i], grid[j][i + 1], grid[j + 1][i + 1], grid[j + 1][i]))
+        for loop in f.loops:
+            loop[uvl].uv = coord[loop.vert]
 bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
 me = bpy.data.meshes.new("Dress_Collar")
 bm.to_mesh(me)
@@ -236,6 +243,46 @@ collar.data.materials.append(coll_mat)
 sol = collar.modifiers.new("thick", "SOLIDIFY")
 sol.thickness = 0.006
 sol.offset = 1
+
+# gold button at the front of the collar
+bodice_eval = bodice.evaluated_get(bpy.context.evaluated_depsgraph_get())
+bz = neck.z - 0.048
+inv = bodice.matrix_world.inverted()
+ok, loc, n, idx = bodice_eval.ray_cast(inv @ Vector((0, -0.5, bz)), Vector((0, 1, 0)))
+by = (bodice.matrix_world @ loc).y if ok else neck.y - 0.1
+bpy.ops.mesh.primitive_uv_sphere_add(segments=20, ring_count=12, radius=0.0075, location=(0, by - 0.002, bz))
+button = bpy.context.active_object
+button.name = "Dress_Button"
+button.scale = (1, 0.45, 1)
+bpy.ops.object.transform_apply(scale=True)
+button.data.materials.append(make_mat("Button_METAL", (0.75, 0.52, 0.16)))
+
+# white crew socks grown from the leg skin (position-based push, seam-safe)
+socks = body.copy()
+socks.data = body.data.copy()
+socks.name = "Socks"
+bpy.context.collection.objects.link(socks)
+skin_i = [i for i, m in enumerate(socks.data.materials) if "SKIN" in m.name][0]
+sock_top = l_lower_leg.z - 0.2
+bm = bmesh.new()
+bm.from_mesh(socks.data)
+kill = [f for f in bm.faces if f.material_index != skin_i or not (0.05 < (socks.matrix_world @ f.calc_center_median()).z < sock_top)]
+bmesh.ops.delete(bm, geom=kill, context="FACES")
+bmesh.ops.delete(bm, geom=[v for v in bm.verts if not v.link_faces], context="VERTS")
+for v in bm.verts:
+    side = 1 if v.co.x > 0 else -1
+    ax = Vector((side * abs(l_lower_leg.x), l_lower_leg.y))
+    d = Vector((v.co.x - ax.x, v.co.y - ax.y))
+    t = max(0.0, (v.co.z - (sock_top - 0.05)) / 0.05)  # slouchy, slightly looser top
+    if d.length > 1e-5:
+        d.normalize()
+        push = 0.0035 + 0.004 * t
+        v.co.x += d.x * push
+        v.co.y += d.y * push
+bm.to_mesh(socks.data)
+bm.free()
+socks.data.materials.clear()
+socks.data.materials.append(make_mat("Socks_CLOTH", (0.92, 0.91, 0.88)))
 
 # ── skin weights for generated parts ───────────────────────────────────
 def weight_by_height(ob, groups):
@@ -264,6 +311,7 @@ weight_by_height(skirt, [
     ("J_Bip_R_UpperLeg", lambda p: leg_share(p, -1)),
 ])
 weight_by_height(band, [("J_Bip_C_Spine", lambda p: 1.0)])
+weight_by_height(button, [("J_Bip_C_UpperChest", lambda p: 1.0)])
 weight_by_height(collar, [
     ("J_Bip_C_UpperChest", lambda p: 1.0),
     ("J_Bip_L_Shoulder", lambda p: max(0.0, p.x - 0.04) * 8),
@@ -278,7 +326,7 @@ for ob in (bodice, collar):
 hem = skirt.modifiers.new("hem", "SOLIDIFY")
 hem.thickness = 0.003
 
-for ob in (skirt, band, collar):
+for ob in (skirt, band, collar, button):
     ob.parent = arm
     mod = ob.modifiers.new("Armature", "ARMATURE")
     mod.object = arm
@@ -288,7 +336,7 @@ for ob in (skirt, band, collar):
 # drop the original body from the export
 bpy.data.objects.remove(body)
 bpy.ops.object.select_all(action="DESELECT")
-for ob in (arm, bodice, skirt, band, collar):
+for ob in (arm, bodice, skirt, band, collar, button, socks):
     ob.select_set(True)
 bpy.ops.export_scene.gltf(
     filepath=dst,

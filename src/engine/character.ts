@@ -5,6 +5,8 @@ import { FaceShaper, type FaceParams } from './faceShape';
 import { ProceduralHair, defaultHair, type HairStyle } from './hair';
 import { morphWeights } from './faceMorphs';
 import { defaultEye, eyeKey, paintIris, type EyeStyle } from './eyes';
+import { collarTexture } from './collarDial';
+import { radioSet } from './props';
 import type { Subject } from './viewer';
 
 const MODELS = `${import.meta.env.BASE_URL}models/`;
@@ -49,7 +51,7 @@ export interface OutfitDef {
 export const CLOTHING_MATERIALS = ['Tops_01_CLOTH', 'Bottoms_01_CLOTH'];
 export const OUTFITS: OutfitDef[] = [
   { id: 'casual', label: 'T 恤 + 短裤（原模型）', baseMaterials: ['Tops_01_CLOTH', 'Bottoms_01_CLOTH'] },
-  { id: 'dress', label: '连衣裙（Blender 生成）', baseMaterials: [], garment: 'dress.glb' },
+  { id: 'dress', label: 'Letha 连衣裙 + 白袜（Blender 生成）', baseMaterials: [], garment: 'dress.glb' },
 ];
 
 export interface Look {
@@ -59,6 +61,7 @@ export interface Look {
   outfit: string;
   hair: HairStyle;
   eye: EyeStyle;
+  props?: { radio: boolean };
   dressColor: string;
 }
 
@@ -106,6 +109,7 @@ export class Character implements Subject {
   private irisTex: THREE.CanvasTexture | null = null;
   private highlightMeshes: THREE.Mesh[] = [];
   private eyeKeyCur = '';
+  private radio: THREE.Group | null = null;
   private garmentMats: MToonMaterial[] = [];
   private blinkT = 0;
   readonly hair = new ProceduralHair();
@@ -226,16 +230,40 @@ export class Character implements Subject {
         return target;
       });
       const src = sm.material as THREE.MeshStandardMaterial;
-      const white = /Collar/i.test(src.name);
+      // collar / socks stay white, the button keeps its gold; only the dress fabric is tinted
+      const fixed = /Collar|Socks|Button/i.test(src.name);
+      const base = /Collar|Socks/i.test(src.name) ? new THREE.Color('#ffffff') : new THREE.Color(src.color);
       const mat = new MToonMaterial({
-        color: white ? new THREE.Color('#f6f3ec') : new THREE.Color(src.color),
-        shadeColorFactor: white ? new THREE.Color('#c9c4d6') : new THREE.Color(src.color).multiplyScalar(0.6),
+        color: base,
+        shadeColorFactor: /Collar|Socks/i.test(src.name) ? new THREE.Color('#cfc9d8') : base.clone().multiplyScalar(0.6),
         shadingToonyFactor: 0.9,
         shadingShiftFactor: -0.05,
         side: THREE.DoubleSide,
       });
+      if (/Collar/i.test(src.name)) {
+        // UVs from geometry, in three's own conventions: u = angle round the
+        // neck (0 = front centre, increasing toward her left), v = 0 at the
+        // neck edge → 1 at the outer edge. Canvas top = v 0 (flipY false).
+        const neck = new THREE.Vector3();
+        (this.vrm.scene.getObjectByName('J_Bip_C_Neck') ?? this.vrm.scene).getWorldPosition(neck);
+        const pa = sm.geometry.getAttribute('position');
+        const uvs = new Float32Array(pa.count * 2);
+        // raw garment coords are in the exporter's armature space (rotated);
+        // the bind matrix brings them to the bind-pose world frame
+        const wp = new THREE.Vector3();
+        for (let i = 0; i < pa.count; i++) {
+          wp.fromBufferAttribute(pa, i).applyMatrix4(sm.bindMatrix);
+          const x = wp.x - neck.x, z = (wp.z - neck.z) / 0.8;
+          const ang = Math.atan2(x, z);
+          uvs[i * 2] = ((ang / (Math.PI * 2)) + 1) % 1;
+          uvs[i * 2 + 1] = Math.min(1, Math.max(0, (Math.hypot(x, z) - 0.05) / 0.078));
+        }
+        sm.geometry.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+        mat.map = collarTexture();
+        mat.shadeMultiplyTexture = mat.map;
+      }
       mat.name = src.name;
-      if (!white) this.garmentMats.push(mat);
+      if (!fixed) this.garmentMats.push(mat);
       const mesh = new THREE.SkinnedMesh(sm.geometry, mat);
       mesh.name = sm.name;
       mesh.frustumCulled = false;
@@ -286,6 +314,11 @@ export class Character implements Subject {
 
   async applyLook(look: Look) {
     this.setHair({ ...defaultHair(), ...look.hair });
+    if (look.props?.radio && !this.radio) {
+      this.radio = radioSet();
+      this.vrm.scene.add(this.radio);
+    }
+    if (this.radio) this.radio.visible = !!look.props?.radio;
     this.shapeWeights = morphWeights(look.face);
     this.shaper.apply(look.face);
     this.tint(this.hairMats, look.hairColor);

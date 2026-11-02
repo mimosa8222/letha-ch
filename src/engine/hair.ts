@@ -21,20 +21,22 @@ export interface HairStyle {
   sideLen: number;
   backLen: number;
   volume: number; // 0..1 extra lift off the scalp
+  headband: boolean;
+  pins: boolean;
 }
 
 export const defaultHair = (): HairStyle => ({
-  mode: 'custom', front: 'side', side: 'short', back: 'medium', frontLen: 1, sideLen: 1, backLen: 1, volume: 0.4,
+  mode: 'custom', front: 'uneven', side: 'none', back: 'flipbob', frontLen: 1, sideLen: 1, backLen: 1, volume: 0.5, headband: true, pins: true,
 });
 
 export const FRONT_STYLES = [
-  ['blunt', '齐刘海'], ['side', '斜刘海'], ['center', '中分'], ['air', '空气刘海'], ['none', '露额头'],
+  ['uneven', '短碎刘海'], ['blunt', '齐刘海'], ['side', '斜刘海'], ['center', '中分'], ['air', '空气刘海'], ['none', '露额头'],
 ] as const;
 export const SIDE_STYLES = [
   ['none', '无'], ['short', '短鬓发'], ['long', '长鬓发'], ['hime', '公主切'],
 ] as const;
 export const BACK_STYLES = [
-  ['short', '短发'], ['bob', '波波头'], ['medium', '中长发'], ['long', '长直发'],
+  ['flipbob', '外翘波浪波波头'], ['short', '短发'], ['bob', '波波头'], ['medium', '中长发'], ['long', '长直发'],
   ['ponytail', '高马尾'], ['twintail', '双马尾'], ['bun', '丸子头'],
 ] as const;
 
@@ -72,6 +74,7 @@ interface StrandSpec {
   start?: THREE.Vector3;
   collideSkull?: boolean;
   flat?: boolean; // hugs the scalp (tied hair)
+  wave?: number; // wavy hair amplitude (m)
 }
 
 function growStrand(s: StrandSpec, volume: number): THREE.Vector3[] {
@@ -103,6 +106,18 @@ function growStrand(s: StrandSpec, volume: number): THREE.Vector3[] {
     pts.push(p.clone());
     if (s.stopY !== undefined && p.y <= s.stopY) break;
   }
+  // soft waves, growing toward the tips
+  if (s.wave && pts.length > 6) {
+    const phase = s.az * 3.1;
+    for (let i = 1; i < pts.length; i++) {
+      const t = i / (pts.length - 1);
+      const az = Math.atan2(pts[i].x - SKULL_C.x, pts[i].z - SKULL_C.z);
+      const side = new THREE.Vector3(Math.cos(az), 0, -Math.sin(az));
+      const out = new THREE.Vector3(Math.sin(az), 0, Math.cos(az));
+      const w = Math.sin(t * Math.PI * 2.6 + phase) * s.wave * t;
+      pts[i].addScaledVector(side, w).addScaledVector(out, Math.abs(w) * 0.5);
+    }
+  }
   // tip curl (outward flip or inward bob curl) over the last 25%
   if (s.curl && pts.length > 6) {
     const n = pts.length, k0 = Math.floor(n * 0.75);
@@ -131,12 +146,13 @@ function frontStrands(style: string, L: number): StrandSpec[] {
     }
     return out;
   }
-  const n = style === 'air' ? 9 : 19;
+  const n = style === 'air' ? 9 : style === 'uneven' ? 17 : 19;
   for (let i = 0; i < n; i++) {
     const t = i / (n - 1); // 0 = character's right … 1 = left
     const az = -0.95 + 1.9 * t + (rnd(i + 3) - 0.5) * 0.05;
     const el = 0.13 * Math.PI + rnd(i) * 0.03;
     const j = (rnd(i + 11) - 0.5) * 0.012;
+    if (style === 'uneven') out.push({ az, el, w: 0.018, stopY: browY + 0.016 + (rnd(i * 5 + 1) - 0.5) * 0.026 - (L - 1) * 0.05, layer: 1.04 + rnd(i) * 0.012, wave: 0.003 });
     if (style === 'blunt') out.push({ az, el, w: 0.019, stopY: browY - 0.004 + j * 0.3 - (L - 1) * 0.05, layer: 1.04 + rnd(i) * 0.015 });
     if (style === 'air') out.push({ az, el, w: 0.011, stopY: browY + 0.006 + j - (L - 1) * 0.05, layer: 1.035 });
     if (style === 'center') {
@@ -195,17 +211,18 @@ function tail(tie: THREE.Vector3, back: THREE.Vector3, len: number, n: number, s
 
 function backStrands(style: string, L: number): StrandSpec[] {
   const out: StrandSpec[] = [];
-  const shell = (stopY: number, curl: number, rows = 2, cols = 15, drift = 0) => {
+  const shell = (stopY: number, curl: number, rows = 2, cols = 15, drift = 0, wave = 0) => {
     for (let r = 0; r < rows; r++)
       for (let i = 0; i < cols; i++) {
         const span = Math.PI - 1.1;
         const az = Math.PI + (i / (cols - 1) - 0.5) * 2 * span + (r ? span / cols : 0);
         const el = [0.1, 0.27, 0.42][r] * Math.PI + rnd(i + r * 31) * 0.04;
         const j = (rnd(i * 3 + r) - 0.5) * 0.03;
-        out.push({ az, el, w: 0.03, stopY: stopY + j - r * 0.004, curl, layer: 1.035 + (2 - r) * 0.018, drift: drift * Math.sign(Math.sin(az)) });
+        out.push({ az, el, w: 0.03, stopY: stopY + j - r * 0.004, curl, layer: 1.035 + (2 - r) * 0.018, drift: drift * Math.sign(Math.sin(az)), wave });
       }
   };
   switch (style) {
+    case 'flipbob': shell(1.36 - (L - 1) * 0.06, 1.0, 3, 22, 0, 0.007); break;
     case 'short': shell(1.39 - (L - 1) * 0.05, -0.2, 3, 20); break;
     case 'bob': shell(1.355 - (L - 1) * 0.06, -0.7, 3, 20); break;
     case 'medium': shell(1.25 - (L - 1) * 0.1, 0.3, 3, 20); break;
@@ -333,6 +350,74 @@ const outlineMat = () =>
     side: THREE.BackSide,
   });
 
+// ── hair accessories ──
+function laceTexture() {
+  const c = document.createElement('canvas');
+  c.width = 512; c.height = 64;
+  const ctx = c.getContext('2d')!;
+  ctx.fillStyle = '#b4b1aa'; ctx.fillRect(0, 0, 512, 64);
+  ctx.fillStyle = '#7d7a74';
+  for (let x = 8; x < 512; x += 16) {
+    for (const y of [16, 32, 48]) { ctx.beginPath(); ctx.arc(x + (y === 32 ? 8 : 0), y, 4.2, 0, Math.PI * 2); ctx.fill(); }
+  }
+  ctx.strokeStyle = '#8f8c86'; ctx.lineWidth = 3;
+  for (const y of [3, 61]) { ctx.beginPath(); for (let x = 0; x <= 512; x += 8) ctx.lineTo(x, y + Math.sin(x / 4) * 2); ctx.stroke(); }
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.wrapS = THREE.RepeatWrapping;
+  return t;
+}
+
+/** Crochet headband over the top of the head, ear to ear, outside the hair. */
+function headbandMesh(volume: number) {
+  const N = 64, s = 1.13 + volume * 0.05, halfW = 0.013, th = 0.004;
+  const pos: number[] = [], uv: number[] = [], idx: number[] = [];
+  for (let i = 0; i <= N; i++) {
+    const t = (i / N) * 2 - 1;
+    const az = t * 1.5, el = 0.21 * Math.PI + 0.31 * Math.PI * t * t;
+    const c = onSkull(az, el, s);
+    const e = onSkull(az, el + 0.04, s).sub(c).normalize(); // across the band
+    const n = c.clone().sub(SKULL_C).divide(SKULL_R).normalize();
+    const corners = [[-1, 0], [1, 0], [1, 1], [-1, 1]];
+    for (let k = 0; k <= 4; k++) {
+      const [a, b] = corners[k % 4];
+      const p = c.clone().addScaledVector(e, a * halfW).addScaledVector(n, b * th);
+      pos.push(p.x, p.y, p.z);
+      uv.push(t * 6, k / 4);
+    }
+  }
+  for (let i = 0; i < N; i++)
+    for (let k = 0; k < 4; k++) {
+      const a = i * 5 + k, b = a + 5;
+      idx.push(a, b, a + 1, b, b + 1, a + 1);
+    }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  g.setIndex(idx);
+  g.computeVertexNormals();
+  const m = new THREE.Mesh(g, new MToonMaterial({ map: laceTexture(), shadingToonyFactor: 0.9, side: THREE.DoubleSide }));
+  m.frustumCulled = false;
+  return m;
+}
+
+/** Two bobby pins on her left side, just above the bangs. */
+function pinMeshes(volume: number) {
+  const g = new THREE.Group();
+  const mat = new MToonMaterial({ color: new THREE.Color('#d8d1c2'), shadeColorFactor: new THREE.Color('#8f8a80') });
+  for (const [az, el] of [[0.62, 0.26 * Math.PI], [0.74, 0.3 * Math.PI]]) {
+    const p = onSkull(az, el, 1.1 + volume * 0.05);
+    const pin = new THREE.Mesh(new THREE.BoxGeometry(0.0045, 0.04, 0.0025), mat);
+    pin.position.copy(p);
+    const n = p.clone().sub(SKULL_C).normalize();
+    pin.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), n);
+    pin.rotateZ(0.9);
+    pin.frustumCulled = false;
+    g.add(pin);
+  }
+  return g;
+}
+
 export class ProceduralHair {
   readonly group = new THREE.Group();
   readonly material: MToonMaterial;
@@ -377,6 +462,8 @@ export class ProceduralHair {
     const ol = new THREE.Mesh(geo, this.outline);
     ol.frustumCulled = false;
     this.group.add(this.mesh, ol);
+    if (style.headband) this.group.add(headbandMesh(style.volume));
+    if (style.pins) this.group.add(pinMeshes(style.volume));
     return true;
   }
 

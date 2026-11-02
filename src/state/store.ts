@@ -12,15 +12,24 @@ const idb: StateStorage = {
   removeItem: (k) => del(k),
 };
 
-export const defaultLook = (): Look => ({
-  face: defaultFaceParams(),
-  hairColor: '#8a5a3c',
-  eyeColor: '#8a5a2e',
-  outfit: 'casual',
-  dressColor: '#2c3550',
-  hair: defaultHair(),
-  eye: defaultEye(),
+/** Letha (the user's OC): honey-brown wavy flip bob, crochet headband, bobby
+ *  pins, sleepy grey-blue eyes, navy 1960s dress with the dial collar, radio. */
+export const lethaLook = (): Look => ({
+  face: {
+    ...defaultFaceParams(),
+    mEyeOpen: -0.5, mEyeRound: -0.15, mBrowTilt: -0.25, mBrowArch: -0.3, mMouth: -0.3, mMouthSize: -0.4,
+    browThickness: -0.35, faceLength: 0.25, chinLength: 0.2, chinWidth: -0.3, cheekFull: -0.15, eyeAngle: -0.1,
+  },
+  hairColor: '#c4935a',
+  eyeColor: '#6f7f96',
+  outfit: 'dress',
+  dressColor: '#323d5e',
+  hair: { ...defaultHair(), front: 'uneven', side: 'none', back: 'flipbob', headband: true, pins: true },
+  eye: { ...defaultEye(), iris: 'gem', highlight: 'double', color2: '#c9d3dd', pupil: 0.8 },
+  props: { radio: true },
 });
+
+export const defaultLook = lethaLook;
 
 export interface Slot {
   id: string;
@@ -70,7 +79,7 @@ export const useStore = create<State>()(
       merge: (persisted, current) => {
         const p = (persisted ?? {}) as Partial<State>;
         const d = defaultLook();
-        const look = { ...d, ...p.look, face: { ...d.face, ...p.look?.face }, hair: { ...d.hair, ...p.look?.hair }, eye: { ...d.eye, ...p.look?.eye } };
+        const look = { ...d, ...p.look, props: { radio: p.look?.props?.radio ?? d.props?.radio ?? false }, face: { ...d.face, ...p.look?.face }, hair: { ...d.hair, ...p.look?.hair }, eye: { ...d.eye, ...p.look?.eye } };
         return { ...current, ...p, look };
       },
     },
