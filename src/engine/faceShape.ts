@@ -266,10 +266,12 @@ const tagOf = (m: THREE.Mesh): Tag => {
   return 'skin';
 };
 
-function makeTarget(m: THREE.Mesh, tag = tagOf(m)): Target {
+function makeTarget(m: THREE.Mesh, tag = tagOf(m), authoredInBindSpace = false): Target {
   const attr = m.geometry.getAttribute('position') as THREE.BufferAttribute;
   m.updateWorldMatrix(true, false);
-  const toWorld = m.matrixWorld.clone();
+  // generated meshes are authored in bind space; they may be parented to a
+  // moving head follower, so their live matrixWorld must not be used here
+  const toWorld = authoredInBindSpace ? new THREE.Matrix4() : m.matrixWorld.clone();
   return { attr, base: Float32Array.from(attr.array as Float32Array), toWorld, toLocal: toWorld.clone().invert(), tag };
 }
 
@@ -292,12 +294,12 @@ export class FaceShaper {
 
   /** Replace the extra (regenerated) meshes, e.g. procedural hair. */
   setExtra(meshes: THREE.Mesh[]) {
-    this.extra = meshes.map((m) => makeTarget(m, 'hair'));
+    this.extra = meshes.map((m) => makeTarget(m, 'hair', true));
   }
 
   /** Add a permanent generated mesh (e.g. lower lashes) with a given tag. */
   addExtra(mesh: THREE.Mesh, tag: Tag) {
-    this.fixedExtra.push(makeTarget(mesh, tag));
+    this.fixedExtra.push(makeTarget(mesh, tag, true));
   }
 
   /** Recompute every target vertex from its rest position. */
@@ -330,8 +332,9 @@ export class FaceShaper {
   /** Total vertex displacement (m), optionally only for one tag — used by tests. */
   displacement(tag?: Tag): number {
     let sum = 0;
-    for (const t of [...this.targets, ...this.extra]) {
+    for (const t of [...this.targets, ...this.extra, ...this.fixedExtra]) {
       if (tag && t.tag !== tag) continue;
+      if (!tag && t.tag === 'hair' && this.extra.includes(t)) continue; // hair also moves with physics
       const arr = t.attr.array as Float32Array;
       for (let i = 0; i < arr.length; i++) sum += Math.abs(arr[i] - t.base[i]);
     }

@@ -343,7 +343,9 @@ function backStrands(style: string, L: number): StrandSpec[] {
 }
 
 // ── geometry ──
-function strandGeometry(pts: THREE.Vector3[], w0: number, pos: number[], nor: number[], uv: number[], idx: number[], flat = false) {
+interface Extra { col: number[]; sid: number[]; wt: number[] }
+
+function strandGeometry(pts: THREE.Vector3[], w0: number, pos: number[], nor: number[], uv: number[], idx: number[], flat = false, ex?: Extra, tone = 1, strandId = -1) {
   if (pts.length < 3) return;
   const curve = new THREE.CatmullRomCurve3(pts, false, 'centripetal');
   const S = Math.min(36, Math.max(8, pts.length));
@@ -371,6 +373,13 @@ function strandGeometry(pts: THREE.Vector3[], w0: number, pos: number[], nor: nu
       nor.push(n.x, n.y, n.z);
       // v from world height: one continuous highlight ring around the whole head
       uv.push(k / R, Math.min(1, Math.max(0, (1.62 - P.y) / 0.75)));
+      if (ex) {
+        // slightly darker roots, a touch lighter (more translucent) at the tips
+        const c = tone * (0.86 + 0.14 * Math.min(1, t / 0.25)) * (1 + 0.08 * t * t);
+        ex.col.push(c, c, c);
+        ex.sid.push(strandId);
+        ex.wt.push(Math.pow(t, 1.6));
+      }
     }
   }
   for (let i = 0; i < S; i++)
@@ -417,17 +426,37 @@ function bunGeometry(pos: number[], nor: number[], uv: number[], idx: number[]) 
 }
 
 let hairTex: THREE.Texture | null = null;
+/**
+ * Anime hair texture (greyscale, tinted by the hair colour). u runs across a
+ * strand, v is world height. Fine fibre lines along the hair, and an "angel
+ * ring" highlight whose band dips in the middle of every strand — the jagged
+ * ring typical of anime hair — placed at the crown's height for all strands.
+ */
 function hairTexture() {
   if (hairTex) return hairTex;
+  const W = 128, H = 512;
   const c = document.createElement('canvas');
-  c.width = 64; c.height = 256;
+  c.width = W; c.height = H;
   const ctx = c.getContext('2d')!;
-  const g = ctx.createLinearGradient(0, 0, 0, 256);
-  g.addColorStop(0, '#cfcfcf'); g.addColorStop(0.085, '#d8d8d8'); g.addColorStop(0.105, '#ffffff');
-  g.addColorStop(0.125, '#f2f2f2'); g.addColorStop(0.145, '#d4d4d4'); g.addColorStop(0.6, '#cdcdcd'); g.addColorStop(1, '#b0b0b0');
-  ctx.fillStyle = g; ctx.fillRect(0, 0, 64, 256);
-  ctx.globalAlpha = 0.07; ctx.fillStyle = '#000';
-  for (let x = 3; x < 64; x += 8) ctx.fillRect(x, 0, 1, 256);
+  const img = ctx.createImageData(W, H);
+  for (let y = 0; y < H; y++) {
+    const v = y / H;
+    const base = 0.8 + 0.06 * Math.min(1, v / 0.08) - 0.08 * Math.max(0, v - 0.6);
+    for (let x = 0; x < W; x++) {
+      const u = x / W;
+      const fibre = 0.035 * Math.sin(u * Math.PI * 2 * 23 + 1.3) + 0.025 * Math.sin(u * Math.PI * 2 * 57 + 0.2) + 0.018 * Math.sin(u * Math.PI * 2 * 131 + v * 3);
+      const across = Math.abs(Math.sin(2 * Math.PI * u)); // 1 in the middle of each face of the strand
+      const vc = 0.1 + 0.026 * Math.pow(across, 0.8);
+      const wdt = 0.006 + 0.012 * across;
+      const ring = 0.5 * Math.exp(-(((v - vc) / wdt) ** 2));
+      const soft = 0.12 * Math.exp(-(((v - 0.1) / 0.05) ** 2)); // soft glow around the ring
+      const L = Math.min(1, Math.max(0, base + fibre + ring + soft));
+      const o = (y * W + x) * 4;
+      img.data[o] = img.data[o + 1] = img.data[o + 2] = L * 255;
+      img.data[o + 3] = 255;
+    }
+  }
+  ctx.putImageData(img, 0, 0);
   hairTex = new THREE.CanvasTexture(c);
   hairTex.colorSpace = THREE.SRGBColorSpace;
   hairTex.wrapS = THREE.RepeatWrapping;
@@ -520,7 +549,7 @@ export class ProceduralHair {
   constructor() {
     this.group.name = 'procedural-hair';
     this.material = new MToonMaterial({
-      map: hairTexture(), shadingToonyFactor: 0.92, shadingShiftFactor: -0.1, side: THREE.DoubleSide,
+      map: hairTexture(), shadingToonyFactor: 0.92, shadingShiftFactor: -0.1, side: THREE.DoubleSide, vertexColors: true,
     });
     this.material.name = 'ProceduralHair_HAIR';
   }
@@ -531,18 +560,40 @@ export class ProceduralHair {
     if (key === this.key) return false;
     this.key = key;
     const pos: number[] = [], nor: number[] = [], uv: number[] = [], idx: number[] = [];
+    const ex: Extra = { col: [], sid: [], wt: [] };
+    const fill = (from: number, c: number) => {
+      for (let i = from; i < pos.length / 3; i++) { ex.col.push(c, c, c); ex.sid.push(-1); ex.wt.push(0); }
+    };
     capGeometry(style, pos, nor, uv, idx);
     if (style.back === 'bun') bunGeometry(pos, nor, uv, idx);
+    fill(0, 0.74); // scalp cap / bun: darkest, underneath everything
     const specs = [
       ...backStrands(style.back, style.backLen),
       ...sideStrands(style.side, style.sideLen),
       ...frontStrands(style.front, style.frontLen),
     ];
-    for (const s of specs) strandGeometry(growStrand(s, style.volume), s.w * (1 + style.volume * 0.4), pos, nor, uv, idx, s.flat);
+    const lens: number[] = [];
+    specs.forEach((sp, i) => {
+      const pts = growStrand(sp, style.volume);
+      let len = 0;
+      for (let k = 1; k < pts.length; k++) len += pts[k].distanceTo(pts[k - 1]);
+      lens.push(len);
+      // inner layers sit in shadow; small per-strand tone variation
+      const depth = Math.min(1, Math.max(0, ((sp.layer ?? 1.04) - 1.025) / 0.05));
+      const tone = 0.8 + 0.2 * depth + (rnd(i * 13 + 5) - 0.5) * 0.06;
+      strandGeometry(pts, sp.w * (1 + style.volume * 0.4), pos, nor, uv, idx, sp.flat, ex, tone, sp.flat ? -1 : i);
+    });
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
     geo.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
     geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+    geo.setAttribute('color', new THREE.Float32BufferAttribute(ex.col, 3));
+    this.sid = Int32Array.from(ex.sid);
+    this.wt = Float32Array.from(ex.wt);
+    this.strandLen = Float32Array.from(lens);
+    this.off = new Float32Array(lens.length * 3);
+    this.vel = new Float32Array(lens.length * 3);
+    this.rest = null;
     geo.setIndex(idx);
     if (this.mesh) {
       this.mesh.geometry.dispose();
@@ -557,6 +608,52 @@ export class ProceduralHair {
     if (style.headband) this.group.add(headbandMesh(style.volume));
     if (style.pins) this.group.add(pinMeshes(style.volume));
     return true;
+  }
+
+  // ── secondary motion (simple per-strand spring) ──
+  private sid = new Int32Array(0);
+  private wt = new Float32Array(0);
+  private strandLen = new Float32Array(0);
+  private off = new Float32Array(0);
+  private vel = new Float32Array(0);
+  private rest: Float32Array | null = null;
+
+  /** Call after anything rewrites the rest shape (rebuild, face shaping). */
+  captureRest() {
+    if (!this.mesh) return;
+    this.rest = Float32Array.from(this.mesh.geometry.getAttribute('position').array as Float32Array);
+  }
+
+  /**
+   * Advance the hair springs. `gLocal`: gravity direction in head space (so a
+   * tilted head lets the tips swing back toward "down"); `accLocal`: head
+   * acceleration in head space (hair lags behind motion); plus a soft breeze.
+   */
+  step(dt: number, time: number, gLocal: THREE.Vector3, accLocal: THREE.Vector3) {
+    if (!this.mesh || !this.rest) return;
+    const n = this.strandLen.length, o = this.off, v = this.vel;
+    const k = 60, c = 7;
+    for (let s = 0; s < n; s++) {
+      const L = this.strandLen[s], ph = s * 1.7;
+      const eqx = gLocal.x * L * 0.6, eqy = (gLocal.y + 1) * L * 0.6, eqz = gLocal.z * L * 0.6;
+      const wind = 0.0025 * (0.6 * Math.sin(time * 1.3 + ph) + 0.4 * Math.sin(time * 0.7 + ph * 1.9));
+      const ax = k * (eqx - o[s * 3]) - c * v[s * 3] - accLocal.x * 0.02 * L + wind * 30;
+      const ay = k * (eqy - o[s * 3 + 1]) - c * v[s * 3 + 1] - accLocal.y * 0.02 * L;
+      const az = k * (eqz - o[s * 3 + 2]) - c * v[s * 3 + 2] - accLocal.z * 0.02 * L + wind * 18;
+      v[s * 3] += ax * dt; v[s * 3 + 1] += ay * dt; v[s * 3 + 2] += az * dt;
+      for (let j = 0; j < 3; j++) o[s * 3 + j] = Math.max(-0.03, Math.min(0.03, o[s * 3 + j] + v[s * 3 + j] * dt));
+    }
+    const attr = this.mesh.geometry.getAttribute('position') as THREE.BufferAttribute;
+    const p = attr.array as Float32Array, r = this.rest;
+    for (let i = 0; i < this.sid.length; i++) {
+      const s = this.sid[i];
+      if (s < 0) continue;
+      const w = this.wt[i];
+      p[i * 3] = r[i * 3] + o[s * 3] * w;
+      p[i * 3 + 1] = r[i * 3 + 1] + o[s * 3 + 1] * w;
+      p[i * 3 + 2] = r[i * 3 + 2] + o[s * 3 + 2] * w;
+    }
+    attr.needsUpdate = true;
   }
 
   get strandCount() {

@@ -114,6 +114,14 @@ export class Character implements Subject {
   private eyeKeyCur = '';
   private radio: THREE.Group | null = null;
   private lowerLash: THREE.Mesh | null = null;
+  /** head follower: generated head parts move with the (animated) head bone */
+  private headBone: THREE.Object3D | null = null;
+  private headBindInv = new THREE.Matrix4();
+  private follow = new THREE.Matrix4();
+  private time = 0;
+  private prevP: THREE.Vector3[] = [];
+  private reduced = typeof matchMedia !== 'undefined' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+  physicsEnabled = true;
   private liners: { mat: MToonMaterial; base: THREE.Color; shade: THREE.Color }[] = [];
   private shoeMats: { mat: MToonMaterial; orig: THREE.Texture; origShade: THREE.Texture | null; saddle: THREE.Texture }[] = [];
   private garmentMats: MToonMaterial[] = [];
@@ -161,6 +169,12 @@ export class Character implements Subject {
     for (const mesh of find(/HAIR/)) for (const m of [mesh.material].flat()) this.prepTint(m as MToonMaterial, this.hairMats, 1.5, true);
     this.originalHair = [...new Set(find(/HAIR/))];
     vrm.scene.add(this.hair.group);
+    this.hair.group.matrixAutoUpdate = false;
+    this.headBone = vrm.humanoid.getRawBoneNode('head');
+    if (this.headBone) {
+      this.headBone.updateWorldMatrix(true, false);
+      this.headBindInv.copy(this.headBone.matrixWorld).invert();
+    }
     vrm.scene.traverse((o) => {
       const m = o as THREE.Mesh;
       if (!m.isMesh || !m.morphTargetDictionary || !m.morphTargetInfluences) return;
@@ -179,6 +193,7 @@ export class Character implements Subject {
       const L = this.shaper.landmarks;
       this.lowerLash = buildLowerLashes(lowerLidCurves(find(/^Face_00_SKIN/), L.eyeL, L.eyeR, L.eyeW), '#3a2622');
       vrm.scene.add(this.lowerLash);
+      this.lowerLash.matrixAutoUpdate = false;
       this.shaper.addExtra(this.lowerLash, 'eye');
       for (const mesh of find(/FaceEyeline/))
         for (const m of [mesh.material].flat() as MToonMaterial[])
@@ -331,7 +346,10 @@ export class Character implements Subject {
     const custom = style.mode === 'custom';
     for (const m of this.originalHair) m.visible = !custom;
     this.hair.group.visible = custom;
-    if (custom && this.hair.build(style)) this.shaper.setExtra(this.hair.mesh ? [this.hair.mesh] : []);
+    if (custom && this.hair.build(style)) {
+      this.shaper.setExtra(this.hair.mesh ? [this.hair.mesh] : []);
+      this.hair.mesh?.geometry.computeBoundingSphere();
+    }
   }
 
   async applyLook(look: Look) {
@@ -348,6 +366,7 @@ export class Character implements Subject {
     }
     this.shapeWeights = morphWeights(look.face);
     this.shaper.apply(look.face);
+    this.hair.captureRest();
     this.tint(this.hairMats, look.hairColor);
     this.hair.outline.uniforms.color.value.set(look.hairColor).multiplyScalar(0.35);
     const eye = { ...defaultEye(), ...look.eye };
@@ -381,7 +400,10 @@ export class Character implements Subject {
       for (const [i, w] of mm.added) inf[i] -= w;
       mm.added.clear();
     }
+    this.time += dt;
+    this.idle(this.time);
     this.vrm.update(dt);
+    this.followHead(dt);
     for (const mm of this.morphMeshes) {
       const inf = mm.mesh.morphTargetInfluences!;
       for (const [name, w] of this.shapeWeights) {
@@ -392,6 +414,41 @@ export class Character implements Subject {
         mm.added.set(i, inf[i] - before);
       }
     }
+  }
+
+  /** Breathing + a slow, slight head sway, so the character (and hair) lives. */
+  private idle(t: number) {
+    const a = this.reduced ? 0 : 1;
+    const h = this.vrm.humanoid;
+    h.getNormalizedBoneNode('head')?.rotation.set(0.03 * a * Math.sin(t * 0.23 + 1), 0.07 * a * Math.sin(t * 0.37), 0.035 * a * Math.sin(t * 0.29));
+    h.getNormalizedBoneNode('neck')?.rotation.set(0, 0.025 * a * Math.sin(t * 0.37 - 0.4), 0);
+    h.getNormalizedBoneNode('upperChest')?.rotation.set(0.012 * a * Math.sin(t * 1.4), 0, 0);
+  }
+
+  /** Move head-attached generated parts with the head bone, then step hair physics. */
+  private followHead(dt: number) {
+    if (!this.headBone) return;
+    this.headBone.updateWorldMatrix(true, false);
+    this.follow.multiplyMatrices(this.headBone.matrixWorld, this.headBindInv);
+    for (const o of [this.hair.group, this.lowerLash]) {
+      if (!o) continue;
+      o.matrix.copy(this.follow);
+      o.matrixWorldNeedsUpdate = true;
+    }
+    if (!this.physicsEnabled || dt <= 0) return;
+    // head-space gravity and acceleration of a point at the back of the head
+    const rot = new THREE.Matrix4().extractRotation(this.follow);
+    const inv = rot.clone().invert();
+    const g = new THREE.Vector3(0, -1, 0).applyMatrix4(inv);
+    const p = new THREE.Vector3(0, 1.5, -0.08).applyMatrix4(this.follow);
+    this.prevP.push(p);
+    if (this.prevP.length > 3) this.prevP.shift();
+    const acc = new THREE.Vector3();
+    if (this.prevP.length === 3) {
+      const [a, b, c] = this.prevP;
+      acc.copy(c).sub(b.clone().multiplyScalar(2)).add(a).divideScalar(dt * dt).applyMatrix4(inv);
+    }
+    this.hair.step(Math.min(dt, 1 / 30), this.time, g, acc);
   }
 
   /** Current influence of a feature morph (for tests). */

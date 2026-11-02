@@ -24,6 +24,7 @@ const shot = async (n) => { await page.waitForTimeout(600); await page.screensho
 
 await page.goto(base);
 await ready();
+await page.evaluate(() => { window.app.character.physicsEnabled = false; });
 check('model loads', true);
 const lethaDefault = await page.evaluate(() => ({ back: window.app.character.hair['key'].includes('flipbob'), radio: !!window.app.character.root.getObjectByName('props:radio')?.visible }));
 check('default look is Letha (flip bob + radio)', lethaDefault.back && lethaDefault.radio, JSON.stringify(lethaDefault));
@@ -193,6 +194,12 @@ check('state persists across reload', persisted === '0.6' && outfitAfter === tru
 // touch controls config (gesture itself can't be verified headless)
 const touches = await page.evaluate(() => window.app.viewer.controls.touches);
 check('touch: 1 finger rotate, 2 finger pinch', touches.ONE === 0 && touches.TWO === 3, JSON.stringify(touches));
+
+// hair physics: alive but bounded
+await page.evaluate(() => { window.app.character.physicsEnabled = true; });
+await page.waitForTimeout(2500);
+const phys = await page.evaluate(() => { const o = window.app.character.hair['off']; let m = 0; for (const x of o) m = Math.max(m, Math.abs(x)); return m; });
+check('hair physics moves strands within bounds', phys > 1e-4 && phys <= 0.03, `max offset ${(phys * 1000).toFixed(1)} mm`);
 
 check('no page errors', errors.length === 0, errors.slice(0, 3).join(' | '));
 await browser.close();
