@@ -381,6 +381,30 @@ for side in (1, -1):
         poly.use_smooth = True
     cuffs.append(c)
 
+    # sock tube continuing down into the shoe: fills the gap when the saddle
+    # shoes' collar is lowered (body skin under the original shoes was deleted)
+    low = [p for p in sv if p.x * side > 0]
+    zbot = min(p.z for p in low)
+    bring = [p for p in low if p.z < zbot + 0.012]
+    fb = bone_pos("J_Bip_%s_Foot" % ("L" if side > 0 else "R"))
+    bx, by, br = fb.x, fb.y, 0.032  # ankle axis from the foot bone; ankle-sized radius
+
+    def tube_pt(u, v, bx=bx, by=by, br=br, zbot=zbot):
+        a = u * 2 * math.pi
+        r = br * (1.0 - 0.12 * v)
+        return Vector((bx + math.sin(a) * r, by + math.cos(a) * r * (1 + 0.25 * v), zbot + 0.006 - (zbot - 0.03) * v))
+
+    t = make_ring_mesh("Socks_Ankle_%s" % ("L" if side > 0 else "R"), 4, 32, tube_pt)
+    t.data.materials.append(sock_mat)
+    t.vertex_groups.new(name=bone).add(list(range(len(t.data.vertices))), 1.0, "REPLACE")
+    t.parent = arm
+    m2 = t.modifiers.new("Armature", "ARMATURE")
+    m2.object = arm
+    for poly in t.data.polygons:
+        poly.use_smooth = True
+    cuffs.append(t)
+    print("sock tube", side, round(zbot, 3), round(br, 3))
+
 # ── skin weights for generated parts ───────────────────────────────────
 def weight_by_height(ob, groups):
     """groups: list of (bone, fn(world_pos) -> weight)"""

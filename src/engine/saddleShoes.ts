@@ -75,9 +75,11 @@ export function saddleShoeTexture(meshes: THREE.Mesh[], orig: THREE.Texture) {
     const u = (i % W) / W, v = Math.floor(i / W) / H;
     let c: number[];
     let shade = 0.88 + 0.12 * Math.min(1, L * 1.6);
-    const soleTop = b.ymin + 0.016;
+    // a slim sole: only the bottom ~1 cm is painted as sole, the rest of the
+    // thick sneaker midsole becomes upper leather → reads as a low oxford
+    const soleTop = b.ymin + 0.0105;
     if (y < soleTop) {
-      c = y > soleTop - 0.003 ? WELT : SOLE;
+      c = y > soleTop - 0.0025 ? WELT : SOLE;
     } else {
       // saddle edges curve: wider near the sole, narrower toward the laces
       const front = 0.66 + 0.07 * (1 - h) ** 1.5;

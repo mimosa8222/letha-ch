@@ -9,6 +9,7 @@ import { collarTexture } from './collarDial';
 import { radioSet } from './props';
 import { saddleShoeTexture } from './saddleShoes';
 import { buildLowerLashes, lowerLidCurves } from './lashes';
+import { SkirtSim } from './clothSim';
 import type { Subject } from './viewer';
 
 const MODELS = `${import.meta.env.BASE_URL}models/`;
@@ -122,6 +123,7 @@ export class Character implements Subject {
   private prevP: THREE.Vector3[] = [];
   private reduced = typeof matchMedia !== 'undefined' && matchMedia('(prefers-reduced-motion: reduce)').matches;
   physicsEnabled = true;
+  skirt: SkirtSim | null = null;
   private liners: { mat: MToonMaterial; base: THREE.Color; shade: THREE.Color }[] = [];
   private shoeMats: { mat: MToonMaterial; orig: THREE.Texture; origShade: THREE.Texture | null; saddle: THREE.Texture }[] = [];
   private garmentMats: MToonMaterial[] = [];
@@ -205,6 +207,9 @@ export class Character implements Subject {
         if (!m.map || this.shoeMats.some((x) => x.mat === m)) continue;
         this.shoeMats.push({ mat: m, orig: m.map, origShade: m.shadeMultiplyTexture, saddle: saddleShoeTexture(shoeMeshes, m.map) });
       }
+    // (shoe geometry is left as is: the foot skin sits right under the shoe
+    // surface, so any reshaping makes skin or socks poke through. The thinner
+    // sole is drawn in the texture instead.)
 
     const box = new THREE.Box3().setFromObject(vrm.scene);
     this.height = box.max.y - box.min.y;
@@ -306,6 +311,7 @@ export class Character implements Subject {
       mesh.frustumCulled = false;
       mesh.bind(new THREE.Skeleton(bones, sm.skeleton.boneInverses), sm.bindMatrix);
       group.add(mesh);
+      if (/Skirt/i.test(sm.name)) this.skirt = new SkirtSim(mesh);
     }
     this.vrm.scene.add(group);
     return group;
@@ -423,6 +429,13 @@ export class Character implements Subject {
     h.getNormalizedBoneNode('head')?.rotation.set(0.03 * a * Math.sin(t * 0.23 + 1), 0.07 * a * Math.sin(t * 0.37), 0.035 * a * Math.sin(t * 0.29));
     h.getNormalizedBoneNode('neck')?.rotation.set(0, 0.025 * a * Math.sin(t * 0.37 - 0.4), 0);
     h.getNormalizedBoneNode('upperChest')?.rotation.set(0.012 * a * Math.sin(t * 1.4), 0, 0);
+    // gentle weight shift: the hips turn a little, the skirt lags behind
+    h.getNormalizedBoneNode('hips')?.rotation.set(0, this.hipYaw(t), 0.008 * a * Math.sin(t * 0.31));
+    h.getNormalizedBoneNode('spine')?.rotation.set(0, -this.hipYaw(t) * 0.8, 0);
+  }
+
+  private hipYaw(t: number) {
+    return this.reduced ? 0 : 0.045 * Math.sin(t * 0.42) + 0.015 * Math.sin(t * 1.1);
   }
 
   /** Move head-attached generated parts with the head bone, then step hair physics. */
@@ -449,6 +462,7 @@ export class Character implements Subject {
       acc.copy(c).sub(b.clone().multiplyScalar(2)).add(a).divideScalar(dt * dt).applyMatrix4(inv);
     }
     this.hair.step(Math.min(dt, 1 / 30), this.time, g, acc);
+    if (this.skirt?.['mesh'].visible !== false) this.skirt?.step(Math.min(dt, 1 / 30), this.time, this.hipYaw(this.time));
   }
 
   /** Current influence of a feature morph (for tests). */

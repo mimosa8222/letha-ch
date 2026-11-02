@@ -199,6 +199,8 @@ check('touch: 1 finger rotate, 2 finger pinch', touches.ONE === 0 && touches.TWO
 await page.evaluate(() => { window.app.character.physicsEnabled = true; });
 await page.waitForTimeout(2500);
 const phys = await page.evaluate(() => { const o = window.app.character.hair['off']; let m = 0; for (const x of o) m = Math.max(m, Math.abs(x)); return m; });
+const skirtSway = await page.evaluate(() => window.app.character.skirt?.maxOffset() ?? -1);
+check('skirt sways gently within bounds', skirtSway > 1e-4 && skirtSway <= 0.015, `${(skirtSway * 1000).toFixed(1)} mm`);
 check('hair physics moves strands within bounds', phys > 1e-4 && phys <= 0.03, `max offset ${(phys * 1000).toFixed(1)} mm`);
 
 check('no page errors', errors.length === 0, errors.slice(0, 3).join(' | '));
