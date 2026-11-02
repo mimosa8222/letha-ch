@@ -52,6 +52,41 @@ for (const [k] of Object.entries(extreme)) await page.fill(`input[data-param=${k
 for (const [k, v] of Object.entries({ eyeSize: 0.6, eyeAngle: -0.5, faceWidth: -0.5, jawWidth: -0.6, chinLength: -0.3, mouthWidth: -0.4 })) await page.fill(`input[data-param=${k}]`, String(v));
 await shot('04-face-cute-preset');
 
+// ── hairstyles ──
+await page.click('nav.tabs button:has-text("发型")');
+const verts = () => page.evaluate(() => { const a = window.app.character.hair.mesh.geometry.attributes.position; let s = 0; for (let i = 1; i < a.array.length; i += 3) s += a.array[i]; return a.count + ':' + s.toFixed(3); });
+const v0 = await verts();
+check('procedural hair generated', parseInt(v0) > 1000, `${v0.split(':')[0]} verts`);
+const seen = new Set([v0]);
+for (const k of ['front:blunt', 'front:center', 'side:long', 'side:hime', 'back:bob', 'back:long', 'back:ponytail', 'back:twintail', 'back:bun']) {
+  await page.click(`[data-hair="${k}"]`);
+  await page.waitForTimeout(80);
+  seen.add(await verts());
+}
+check('each hair option builds different geometry', seen.size >= 9, `${seen.size} distinct`);
+await page.click('[data-hair="back:long"]');
+await page.fill('input[data-hairparam=backLen]', '1.5');
+await page.waitForTimeout(80);
+check('hair length slider regenerates hair', !seen.has(await verts()));
+const hairFollowsFace = await page.evaluate(() => {
+  const m = window.app.character.hair.mesh; const a = m.geometry.attributes.position.array.slice();
+  return a.length;
+});
+await page.fill('input[data-hairparam=backLen]', '1');
+await page.click('button:has-text("原模型发型")');
+const modeVis = await page.evaluate(() => {
+  const c = window.app.character; let orig = null;
+  c.root.traverse((o) => { if (o.isMesh && /^Hair_00_HAIR/.test([o.material].flat()[0].name)) orig = o.visible; });
+  return { orig, proc: c.hair.group.visible };
+});
+check('original-hair mode swaps meshes', modeVis.orig === true && modeVis.proc === false, JSON.stringify(modeVis));
+await page.click('button:has-text("自定义发型")');
+await page.click('[data-hair="back:bob"]');
+await page.click('[data-hair="front:blunt"]');
+await page.click('[data-hair="side:none"]');
+void hairFollowsFace;
+await shot('05a-hair-blunt-bob');
+
 // ── colors ──
 await page.click('nav.tabs button:has-text("颜色")');
 await page.locator('.swatches').nth(0).locator('button').nth(1).click(); // blonde

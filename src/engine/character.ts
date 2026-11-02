@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { MToonMaterial, VRMLoaderPlugin, VRMUtils, type VRM } from '@pixiv/three-vrm';
 import { FaceShaper, type FaceParams } from './faceShape';
+import { ProceduralHair, defaultHair, type HairStyle } from './hair';
 import type { Subject } from './viewer';
 
 const MODELS = `${import.meta.env.BASE_URL}models/`;
@@ -54,6 +55,7 @@ export interface Look {
   hairColor: string;
   eyeColor: string;
   outfit: string;
+  hair: HairStyle;
   dressColor: string;
 }
 
@@ -98,6 +100,8 @@ export class Character implements Subject {
   private irisMats: MToonMaterial[] = [];
   private garmentMats: MToonMaterial[] = [];
   private blinkT = 0;
+  readonly hair = new ProceduralHair();
+  private originalHair: THREE.Mesh[] = [];
 
   private constructor(readonly vrm: VRM) {
     this.root = vrm.scene;
@@ -132,6 +136,9 @@ export class Character implements Subject {
     });
 
     for (const mesh of find(/HAIR/)) for (const m of [mesh.material].flat()) this.prepTint(m as MToonMaterial, this.hairMats, 1.5, true);
+    this.originalHair = [...new Set(find(/HAIR/))];
+    vrm.scene.add(this.hair.group);
+    this.hairMats.push(this.hair.material);
     for (const mesh of find(/EyeIris/)) for (const m of [mesh.material].flat()) this.prepTint(m as MToonMaterial, this.irisMats, 1.6);
 
     const box = new THREE.Box3().setFromObject(vrm.scene);
@@ -215,9 +222,18 @@ export class Character implements Subject {
     return group;
   }
 
+  setHair(style: HairStyle) {
+    const custom = style.mode === 'custom';
+    for (const m of this.originalHair) m.visible = !custom;
+    this.hair.group.visible = custom;
+    if (custom && this.hair.build(style)) this.shaper.setExtra(this.hair.mesh ? [this.hair.mesh] : []);
+  }
+
   async applyLook(look: Look) {
+    this.setHair({ ...defaultHair(), ...look.hair });
     this.shaper.apply(look.face);
     this.tint(this.hairMats, look.hairColor);
+    this.hair.outline.uniforms.color.value.set(look.hairColor).multiplyScalar(0.35);
     this.tint(this.irisMats, look.eyeColor, 0.55);
     await this.setOutfit(look.outfit);
     for (const m of this.garmentMats) {

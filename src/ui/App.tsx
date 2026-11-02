@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 import { Character, OUTFITS } from '../engine/character';
 import { PARAMS } from '../engine/faceShape';
+import { BACK_STYLES, FRONT_STYLES, SIDE_STYLES, defaultHair } from '../engine/hair';
 import { Viewer, type Framing } from '../engine/viewer';
 import { useStore } from '../state/store';
 
-type Tab = 'face' | 'color' | 'outfit' | 'save';
+type Tab = 'face' | 'hair' | 'color' | 'outfit' | 'save';
 
 const HAIR = ['#8a5a3c', '#e2c27a', '#c8a07a', '#2b2326', '#d9d6d2', '#c46a7a', '#5a6fa8'];
 const EYES = ['#8a5a2e', '#6f8fb0', '#b97a9c', '#4f8a64', '#c9a227', '#9a3a3a', '#3c3550'];
@@ -22,7 +23,8 @@ export function App() {
   const [error, setError] = useState<string | null>(null);
   const [framing, setFraming] = useState<Framing>('full');
   const [tab, setTab] = useState<Tab>('face');
-  const { look, setFace, patch, reset, slots, save, load, remove } = useStore();
+  const { look, setFace, setHair, patch, reset, slots, save, load, remove } = useStore();
+  const hair = { ...defaultHair(), ...look.hair };
   const [name, setName] = useState('');
 
   useEffect(() => {
@@ -72,7 +74,7 @@ export function App() {
 
       <aside className="panel">
         <nav className="tabs">
-          {([['face', '捏脸'], ['color', '颜色'], ['outfit', '服装'], ['save', '存档']] as [Tab, string][]).map(([k, l]) => (
+          {([['face', '捏脸'], ['hair', '发型'], ['color', '颜色'], ['outfit', '服装'], ['save', '存档']] as [Tab, string][]).map(([k, l]) => (
             <button key={k} className={tab === k ? 'on' : ''} onClick={() => { setTab(k); if (k === 'face' && framing !== 'face') frame('face'); }}>{l}</button>
           ))}
         </nav>
@@ -97,6 +99,27 @@ export function App() {
                 </div>
               ))}
               <button className="ghost wide" onClick={() => patch({ face: Object.fromEntries(PARAMS.map((p) => [p.key, 0])) })}>脸部归零</button>
+            </>
+          )}
+          {tab === 'hair' && (
+            <>
+              <div className="seg wide-seg">
+                <button className={hair.mode === 'custom' ? 'on' : ''} onClick={() => setHair({ mode: 'custom' })}>自定义发型</button>
+                <button className={hair.mode === 'original' ? 'on' : ''} onClick={() => setHair({ mode: 'original' })}>原模型发型</button>
+              </div>
+              {hair.mode === 'custom' && (
+                <>
+                  <Chips title="前发" list={FRONT_STYLES} value={hair.front} onPick={(v) => setHair({ front: v })} id="front" />
+                  <Range label="前发长度" value={hair.frontLen} min={0.6} max={1.5} onChange={(v) => setHair({ frontLen: v })} id="frontLen" />
+                  <Chips title="侧发" list={SIDE_STYLES} value={hair.side} onPick={(v) => setHair({ side: v })} id="side" />
+                  <Range label="侧发长度" value={hair.sideLen} min={0.6} max={1.6} onChange={(v) => setHair({ sideLen: v })} id="sideLen" />
+                  <Chips title="后发" list={BACK_STYLES} value={hair.back} onPick={(v) => setHair({ back: v })} id="back" />
+                  <Range label="后发长度" value={hair.backLen} min={0.6} max={1.6} onChange={(v) => setHair({ backLen: v })} id="backLen" />
+                  <h3>整体</h3>
+                  <Range label="蓬松度" value={hair.volume} min={0} max={1} onChange={(v) => setHair({ volume: v })} id="volume" />
+                </>
+              )}
+              <p className="hint">发色在「颜色」页调整。</p>
             </>
           )}
           {tab === 'color' && (
@@ -138,6 +161,29 @@ export function App() {
         </div>
       </aside>
     </div>
+  );
+}
+
+function Chips({ title, list, value, onPick, id }: { title: string; list: readonly (readonly [string, string])[]; value: string; onPick(v: string): void; id: string }) {
+  return (
+    <div>
+      <h3>{title}</h3>
+      <div className="chips">
+        {list.map(([k, label]) => (
+          <button key={k} className={`chip ${k === value ? 'on' : ''}`} onClick={() => onPick(k)} data-hair={`${id}:${k}`}>{label}</button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function Range({ label, value, min, max, onChange, id }: { label: string; value: number; min: number; max: number; onChange(v: number): void; id: string }) {
+  return (
+    <label className="slider">
+      <span>{label}</span>
+      <input type="range" min={min} max={max} step={0.01} value={value} onChange={(e) => onChange(+e.target.value)} data-hairparam={id} />
+      <output>{Math.round(value * 100)}</output>
+    </label>
   );
 }
 

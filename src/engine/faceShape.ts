@@ -173,6 +173,7 @@ interface Target {
 
 export class FaceShaper {
   private targets: Target[] = [];
+  private extra: Target[] = [];
   readonly landmarks: Landmarks;
 
   constructor(meshes: THREE.Mesh[], landmarkMeshes: Record<string, THREE.Mesh[]>) {
@@ -188,12 +189,22 @@ export class FaceShaper {
     this.landmarks = computeLandmarks(landmarkMeshes);
   }
 
+  /** Replace the extra (regenerated) meshes, e.g. procedural hair. */
+  setExtra(meshes: THREE.Mesh[]) {
+    this.extra = meshes.map((m) => {
+      const attr = m.geometry.getAttribute('position') as THREE.BufferAttribute;
+      m.updateWorldMatrix(true, false);
+      const toWorld = m.matrixWorld.clone();
+      return { attr, base: Float32Array.from(attr.array as Float32Array), toWorld, toLocal: toWorld.clone().invert() };
+    });
+  }
+
   /** Recompute every target vertex from its rest position. */
   apply(params: FaceParams) {
     const active = PARAMS.filter((d) => Math.abs(params[d.key] ?? 0) > 1e-4);
     const p = new THREE.Vector3();
     const L = this.landmarks;
-    for (const t of this.targets) {
+    for (const t of [...this.targets, ...this.extra]) {
       const { attr, base } = t;
       const arr = attr.array as Float32Array;
       for (let i = 0; i < attr.count; i++) {
