@@ -7,6 +7,7 @@ import { morphWeights } from './faceMorphs';
 import { defaultEye, eyeKey, paintIris, type EyeStyle } from './eyes';
 import { collarTexture } from './collarDial';
 import { radioSet } from './props';
+import { saddleShoeTexture } from './saddleShoes';
 import type { Subject } from './viewer';
 
 const MODELS = `${import.meta.env.BASE_URL}models/`;
@@ -62,6 +63,7 @@ export interface Look {
   hair: HairStyle;
   eye: EyeStyle;
   props?: { radio: boolean };
+  shoes?: 'saddle' | 'sneaker';
   dressColor: string;
 }
 
@@ -110,6 +112,7 @@ export class Character implements Subject {
   private highlightMeshes: THREE.Mesh[] = [];
   private eyeKeyCur = '';
   private radio: THREE.Group | null = null;
+  private shoeMats: { mat: MToonMaterial; orig: THREE.Texture; origShade: THREE.Texture | null; saddle: THREE.Texture }[] = [];
   private garmentMats: MToonMaterial[] = [];
   private blinkT = 0;
   readonly hair = new ProceduralHair();
@@ -168,6 +171,12 @@ export class Character implements Subject {
     for (const mesh of find(/EyeIris/)) for (const m of [mesh.material].flat()) this.prepTint(m as MToonMaterial, this.irisMats, 1.6);
     this.irisGrey = this.irisMats.map((m) => ({ map: m.map, shade: m.shadeMultiplyTexture }));
     this.highlightMeshes = find(/EyeHighlight/);
+    const shoeMeshes = find(/^Shoes/);
+    for (const mesh of shoeMeshes)
+      for (const m of [mesh.material].flat() as MToonMaterial[]) {
+        if (!m.map || this.shoeMats.some((x) => x.mat === m)) continue;
+        this.shoeMats.push({ mat: m, orig: m.map, origShade: m.shadeMultiplyTexture, saddle: saddleShoeTexture(shoeMeshes, m.map) });
+      }
 
     const box = new THREE.Box3().setFromObject(vrm.scene);
     this.height = box.max.y - box.min.y;
@@ -319,6 +328,11 @@ export class Character implements Subject {
       this.vrm.scene.add(this.radio);
     }
     if (this.radio) this.radio.visible = !!look.props?.radio;
+    for (const s of this.shoeMats) {
+      const saddle = (look.shoes ?? 'saddle') === 'saddle';
+      s.mat.map = saddle ? s.saddle : s.orig;
+      s.mat.shadeMultiplyTexture = saddle ? s.saddle : s.origShade;
+    }
     this.shapeWeights = morphWeights(look.face);
     this.shaper.apply(look.face);
     this.tint(this.hairMats, look.hairColor);

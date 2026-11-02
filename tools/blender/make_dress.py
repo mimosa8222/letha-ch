@@ -80,11 +80,50 @@ for v in bm.verts:
     k = max(0.0, min(1.0, (chest_z - w.z) / (chest_z - waist_z)))
     k = k * k * (3 - 2 * k)
     torso = 1 - max(0.0, min(1.0, (abs(w.x) - 0.1) / 0.05))  # fades out toward the sleeves
-    slim = torso * (0.07 + 0.06 * k)
+    # fitted 1960s bodice: clearly nipped waist, closer through the ribs
+    slim = torso * (0.1 + 0.12 * k)
     v.co.x *= 1 - slim
-    v.co.y = hips.y + (v.co.y - hips.y) * (1 - 0.6 * slim)
+    v.co.y = hips.y + (v.co.y - hips.y) * (1 - 0.75 * slim)
+    # puff sleeves: push away from the arm axis (T-pose: arm runs along x), position-based
+    ax = abs(w.x)
+    if ax > 0.14:
+        t = min(1.0, (ax - 0.14) / max(0.01, sleeve_x - 0.14))
+        bump = math.sin(math.pi * min(1.0, t * 1.15)) * 0.016
+        d = Vector((0, w.y - l_upper_arm.y, w.z - l_upper_arm.z))
+        if d.length > 1e-5:
+            d.normalize()
+            v.co.y += d.y * bump
+            v.co.z += d.z * bump
 bm.to_mesh(bodice.data)
 bm.free()
+# never let the cloth sink into the skin: push any vertex closer than `margin`
+# back outside the body surface (BVH nearest point + face normal)
+from mathutils.bvhtree import BVHTree
+_skin = bmesh.new()
+_skin.from_mesh(body.data)
+_si = [i for i, m in enumerate(body.data.materials) if "SKIN" in m.name][0]
+bmesh.ops.delete(_skin, geom=[f for f in _skin.faces if f.material_index != _si], context="FACES")
+bmesh.ops.transform(_skin, matrix=body.matrix_world, verts=_skin.verts)
+_skin.normal_update()
+skin_bvh = BVHTree.FromBMesh(_skin)
+
+
+def keep_outside(ob, margin):
+    mwo = ob.matrix_world
+    inv = mwo.inverted()
+    moved = 0
+    for v in ob.data.vertices:
+        p = mwo @ v.co
+        loc, nrm, _i, dist = skin_bvh.find_nearest(p)
+        if loc is None or dist > 0.04:
+            continue
+        if (p - loc).dot(nrm) < margin:
+            v.co = inv @ (loc + nrm * margin)
+            moved += 1
+    print("keep_outside", ob.name, moved)
+
+
+keep_outside(bodice, 0.005)
 bodice.data.materials.clear()
 def make_mat(name, rgb):
     m = bpy.data.materials.new(name)
@@ -161,14 +200,16 @@ def skirt_pt(u, v):
     # starts exactly on the waist outline, eases over the hips, flares to the hem
     hip_t = min(1.0, (top_z - z) / max(0.01, top_z - hip_z + 0.04))
     hip_t = hip_t * hip_t * (3 - 2 * hip_t)
-    r = ring_r(a) + 0.005 + 0.035 * hip_t + 0.075 * v ** 1.4
+    # soft A-line: just clears the hips, then falls fairly straight
+    r = ring_r(a) + 0.004 + 0.022 * hip_t + 0.05 * v ** 1.6
     tri = abs(((u * pleats * 2) % 2) - 1)  # 0..1 triangle wave → knife pleats
-    k = 1 + (0.004 + 0.06 * v) * (tri - 0.5)
+    k = 1 + (0.003 + 0.035 * v) * (tri - 0.5)  # soft gathers, not stiff pleats
     return Vector((math.sin(a) * r * k, cy - math.cos(a) * r * k, z))
 
 
 pleats = 24
 skirt = make_ring_mesh("Dress_Skirt", 26, pleats * 10, skirt_pt)
+keep_outside(skirt, 0.008)
 skirt.data.materials.append(dress_mat)
 
 # waistband

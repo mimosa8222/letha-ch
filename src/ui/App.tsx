@@ -181,6 +181,12 @@ export function App() {
                   {look.outfit === o.id ? '● ' : '○ '}{o.label}
                 </button>
               ))}
+              <h3>鞋</h3>
+              <div className="chips">
+                {([['saddle', '马鞍鞋'], ['sneaker', '原版运动鞋']] as const).map(([k, l]) => (
+                  <button key={k} className={`chip ${(look.shoes ?? 'saddle') === k ? 'on' : ''}`} data-shoes={k} onClick={() => patch({ shoes: k })}>{l}</button>
+                ))}
+              </div>
               <h3>配件</h3>
               <div className="chips">
                 <button className={`chip ${look.props?.radio ? 'on' : ''}`} data-acc="radio" onClick={() => patch({ props: { ...look.props, radio: !look.props?.radio } })}>皮套收音机 + 耳机</button>

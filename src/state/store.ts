@@ -17,16 +17,23 @@ const idb: StateStorage = {
 export const lethaLook = (): Look => ({
   face: {
     ...defaultFaceParams(),
-    mEyeOpen: -0.5, mEyeRound: -0.15, mBrowTilt: -0.25, mBrowArch: -0.3, mMouth: -0.3, mMouthSize: -0.4,
-    browThickness: -0.35, faceLength: 0.25, chinLength: 0.2, chinWidth: -0.3, cheekFull: -0.15, eyeAngle: -0.1,
+    // eyes: almond shape, heavy sleepy upper lid resting on a large iris
+    eyeVertical: -0.2, mEyeRound: -0.3, mEyeOpen: -0.45, mEyeTilt: -0.12, irisSize: 0.35, irisHeight: -0.2,
+    // brows: thin, straight, a little high (bored look)
+    browThickness: -0.55, mBrowArch: -0.5, mBrowTilt: -0.1, browHeight: 0.25, browLength: 0.1,
+    // face: slightly long, soft (not pointy) chin
+    faceLength: 0.2, chinLength: -0.1, chinWidth: 0.1, jawWidth: -0.1, cheekFull: 0.05,
+    // mouth: small, flat, sullen
+    mMouthSize: -0.45, mMouth: -0.15, mouthWidth: -0.15,
   },
   hairColor: '#c4935a',
-  eyeColor: '#6f7f96',
+  eyeColor: '#7a8aa0',
   outfit: 'dress',
   dressColor: '#323d5e',
   hair: { ...defaultHair(), front: 'uneven', side: 'none', back: 'flipbob', headband: true, pins: true },
-  eye: { ...defaultEye(), iris: 'gem', highlight: 'double', color2: '#c9d3dd', pupil: 0.8 },
+  eye: { ...defaultEye(), iris: 'gem', highlight: 'double', color2: '#d3dbe3', pupil: 0.75 },
   props: { radio: true },
+  shoes: 'saddle',
 });
 
 export const defaultLook = lethaLook;
