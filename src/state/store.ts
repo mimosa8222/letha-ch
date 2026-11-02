@@ -20,6 +20,7 @@ export const lethaLook = (): Look => ({
     // eyes: almond shape, heavy sleepy upper lid resting on a large iris
     eyeVertical: -0.2, mEyeRound: -0.3, mEyeOpen: -0.45, mEyeTilt: -0.12, irisSize: 0.35, irisHeight: -0.2,
     // brows: thin, straight, a little high (bored look)
+    lashThickness: 0.35,
     browThickness: -0.55, mBrowArch: -0.5, mBrowTilt: -0.1, browHeight: 0.25, browLength: 0.1,
     // face: slightly long, soft (not pointy) chin
     faceLength: 0.2, chinLength: -0.1, chinWidth: 0.1, jawWidth: -0.1, cheekFull: 0.05,
@@ -30,8 +31,8 @@ export const lethaLook = (): Look => ({
   eyeColor: '#7a8aa0',
   outfit: 'dress',
   dressColor: '#323d5e',
-  hair: { ...defaultHair(), front: 'uneven', side: 'none', back: 'flipbob', headband: true, pins: true },
-  eye: { ...defaultEye(), iris: 'gem', highlight: 'double', color2: '#d3dbe3', pupil: 0.75 },
+  hair: { ...defaultHair(), front: 'uneven', side: 'frame', back: 'flipbob', headband: true, pins: true },
+  eye: { ...defaultEye(), iris: 'gem', highlight: 'double', color2: '#d3dbe3', pupil: 0.75, lowerLash: true, liner: 0.7 },
   props: { radio: true },
   shoes: 'saddle',
 });

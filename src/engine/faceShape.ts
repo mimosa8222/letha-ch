@@ -17,7 +17,7 @@ import * as THREE from 'three';
  * To add a parameter: append to PARAMS with an `apply` that edits `p` in place.
  */
 
-export type Tag = 'brow' | 'eye' | 'iris' | 'skin' | 'hair';
+export type Tag = 'brow' | 'eye' | 'iris' | 'lash' | 'skin' | 'hair';
 
 export interface Landmarks {
   eyeL: THREE.Vector3;
@@ -25,6 +25,8 @@ export interface Landmarks {
   eyeW: number; // eye-white width
   browL: THREE.Vector3;
   browR: THREE.Vector3;
+  lashL: THREE.Vector3;
+  lashR: THREE.Vector3;
   mouth: THREE.Vector3;
   nose: THREE.Vector3; // nose tip
   chin: THREE.Vector3; // lowest front point of the face
@@ -118,6 +120,12 @@ export const PARAMS: ParamDef[] = [
     } },
   { key: 'eyeVertical', label: '眼睛纵向', group: '眼睛', min: -1, max: 1,
     apply(p, v, L, tag) { eachEye(p, L, tag, (c, w) => { p.y += (p.y - c.y) * 0.25 * v * w; }); } },
+  { key: 'lashThickness', label: '眼线粗细', group: '眼睛', min: -1, max: 1,
+    apply(p, v, L, tag) {
+      if (tag !== 'lash') return;
+      const c = p.x >= 0 ? L.lashL : L.lashR;
+      p.y = c.y + (p.y - c.y) * (1 + 0.45 * v);
+    } },
   { key: 'irisSize', label: '瞳孔大小', group: '眼睛', min: -1, max: 1,
     apply(p, v, L, tag) {
       if (tag !== 'iris') return;
@@ -253,6 +261,7 @@ const tagOf = (m: THREE.Mesh): Tag => {
   if (/Brow/i.test(n)) return 'brow';
   if (/HAIR/i.test(n)) return 'hair';
   if (/EyeIris|EyeHighlight/i.test(n)) return 'iris';
+  if (/Eyeline/i.test(n)) return 'lash';
   if (/EYE|Eyeline/i.test(n)) return 'eye';
   return 'skin';
 };
@@ -267,6 +276,7 @@ function makeTarget(m: THREE.Mesh, tag = tagOf(m)): Target {
 export class FaceShaper {
   private targets: Target[] = [];
   private extra: Target[] = [];
+  private fixedExtra: Target[] = [];
   readonly landmarks: Landmarks;
 
   constructor(meshes: THREE.Mesh[], landmarkMeshes: Record<string, THREE.Mesh[]>) {
@@ -285,12 +295,17 @@ export class FaceShaper {
     this.extra = meshes.map((m) => makeTarget(m, 'hair'));
   }
 
+  /** Add a permanent generated mesh (e.g. lower lashes) with a given tag. */
+  addExtra(mesh: THREE.Mesh, tag: Tag) {
+    this.fixedExtra.push(makeTarget(mesh, tag));
+  }
+
   /** Recompute every target vertex from its rest position. */
   apply(params: FaceParams) {
     const active = PARAMS.filter((d) => Math.abs(params[d.key] ?? 0) > 1e-4);
     const p = new THREE.Vector3();
     const L = this.landmarks;
-    for (const t of [...this.targets, ...this.extra]) {
+    for (const t of [...this.targets, ...this.extra, ...this.fixedExtra]) {
       const { attr, base, tag } = t;
       const arr = attr.array as Float32Array;
       for (let i = 0; i < attr.count; i++) {
@@ -347,6 +362,7 @@ function computeLandmarks(m: Record<string, THREE.Mesh[]>): Landmarks {
   const mouth = worldPoints(m.mouth);
   const skin = worldPoints(m.skin);
   const brows = worldPoints(m.brow);
+  const lashes = worldPoints(m.lash);
   const eyeL = mean(iris.filter((p) => p.x > 0));
   const eyeR = mean(iris.filter((p) => p.x < 0));
   const wl = white.filter((p) => p.x > 0);
@@ -362,5 +378,8 @@ function computeLandmarks(m: Record<string, THREE.Mesh[]>): Landmarks {
   const bl = brows.filter((p) => p.x > 0), br = brows.filter((p) => p.x < 0);
   const browL = bl.length ? mean(bl) : new THREE.Vector3(0.045, eyeL.y + 0.037, 0.064);
   const browR = br.length ? mean(br) : new THREE.Vector3(-0.045, eyeL.y + 0.037, 0.064);
-  return { eyeL, eyeR, eyeW, browL, browR, mouth: mth, nose: nose.clone(), chin: chin.clone(), faceHalfW };
+  const ll = lashes.filter((p) => p.x > 0), lr = lashes.filter((p) => p.x < 0);
+  const lashL = ll.length ? mean(ll) : eyeL.clone().add(new THREE.Vector3(0, 0.012, 0));
+  const lashR = lr.length ? mean(lr) : eyeR.clone().add(new THREE.Vector3(0, 0.012, 0));
+  return { eyeL, eyeR, eyeW, browL, browR, lashL, lashR, mouth: mth, nose: nose.clone(), chin: chin.clone(), faceHalfW };
 }

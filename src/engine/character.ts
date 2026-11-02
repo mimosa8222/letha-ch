@@ -8,6 +8,7 @@ import { defaultEye, eyeKey, paintIris, type EyeStyle } from './eyes';
 import { collarTexture } from './collarDial';
 import { radioSet } from './props';
 import { saddleShoeTexture } from './saddleShoes';
+import { buildLowerLashes, lowerLidCurves } from './lashes';
 import type { Subject } from './viewer';
 
 const MODELS = `${import.meta.env.BASE_URL}models/`;
@@ -112,6 +113,8 @@ export class Character implements Subject {
   private highlightMeshes: THREE.Mesh[] = [];
   private eyeKeyCur = '';
   private radio: THREE.Group | null = null;
+  private lowerLash: THREE.Mesh | null = null;
+  private liners: { mat: MToonMaterial; base: THREE.Color; shade: THREE.Color }[] = [];
   private shoeMats: { mat: MToonMaterial; orig: THREE.Texture; origShade: THREE.Texture | null; saddle: THREE.Texture }[] = [];
   private garmentMats: MToonMaterial[] = [];
   private blinkT = 0;
@@ -152,6 +155,7 @@ export class Character implements Subject {
       mouth: find(/FaceMouth/),
       skin: find(/^Face_00_SKIN/),
       brow: find(/FaceBrow/),
+      lash: find(/FaceEyeline/),
     });
 
     for (const mesh of find(/HAIR/)) for (const m of [mesh.material].flat()) this.prepTint(m as MToonMaterial, this.hairMats, 1.5, true);
@@ -171,6 +175,15 @@ export class Character implements Subject {
     for (const mesh of find(/EyeIris/)) for (const m of [mesh.material].flat()) this.prepTint(m as MToonMaterial, this.irisMats, 1.6);
     this.irisGrey = this.irisMats.map((m) => ({ map: m.map, shade: m.shadeMultiplyTexture }));
     this.highlightMeshes = find(/EyeHighlight/);
+    {
+      const L = this.shaper.landmarks;
+      this.lowerLash = buildLowerLashes(lowerLidCurves(find(/^Face_00_SKIN/), L.eyeL, L.eyeR, L.eyeW), '#3a2622');
+      vrm.scene.add(this.lowerLash);
+      this.shaper.addExtra(this.lowerLash, 'eye');
+      for (const mesh of find(/FaceEyeline/))
+        for (const m of [mesh.material].flat() as MToonMaterial[])
+          if (!this.liners.some((x) => x.mat === m)) this.liners.push({ mat: m, base: m.color.clone(), shade: m.shadeColorFactor.clone() });
+    }
     const shoeMeshes = find(/^Shoes/);
     for (const mesh of shoeMeshes)
       for (const m of [mesh.material].flat() as MToonMaterial[]) {
@@ -337,7 +350,14 @@ export class Character implements Subject {
     this.shaper.apply(look.face);
     this.tint(this.hairMats, look.hairColor);
     this.hair.outline.uniforms.color.value.set(look.hairColor).multiplyScalar(0.35);
-    this.setEyes({ ...defaultEye(), ...look.eye }, look.eyeColor);
+    const eye = { ...defaultEye(), ...look.eye };
+    this.setEyes(eye, look.eyeColor);
+    if (this.lowerLash) this.lowerLash.visible = eye.lowerLash;
+    for (const l of this.liners) {
+      const k = 1 - 0.6 * eye.liner;
+      l.mat.color.copy(l.base).multiplyScalar(k);
+      l.mat.shadeColorFactor.copy(l.shade).multiplyScalar(k);
+    }
     await this.setOutfit(look.outfit);
     for (const m of this.garmentMats) {
       const isBand = /Waistband/i.test(m.name);

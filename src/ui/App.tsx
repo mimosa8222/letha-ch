@@ -158,7 +158,12 @@ export function App() {
               <Swatches title="瞳色（下渐变）" list={EYES2} value={eye.color2} onPick={(c) => setEye({ color2: c })} />
               <h3>大小与位置</h3>
               <Range label="瞳仁大小" value={eye.pupil} min={0.5} max={1.5} onChange={(v) => setEye({ pupil: v })} id="pupil" />
-              {PARAMS.filter((p) => p.key === 'irisSize' || p.key === 'irisHeight').map((p) => (
+              <h3>睫毛与眼线</h3>
+              <div className="chips">
+                <button className={`chip ${eye.lowerLash ? 'on' : ''}`} data-acc="lowerLash" onClick={() => setEye({ lowerLash: !eye.lowerLash })}>下睫毛</button>
+              </div>
+              <Range label="眼线浓度" value={eye.liner} min={0} max={1} onChange={(v) => setEye({ liner: v })} id="liner" />
+              {PARAMS.filter((p) => p.key === 'irisSize' || p.key === 'irisHeight' || p.key === 'lashThickness').map((p) => (
                 <label key={p.key} className="slider">
                   <span>{p.label}</span>
                   <input type="range" min={p.min} max={p.max} step={0.01} value={look.face[p.key] ?? 0} onChange={(e) => setFace(p.key, +e.target.value)} />

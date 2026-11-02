@@ -14,9 +14,11 @@ export interface EyeStyle {
   highlight: string;
   color2: string; // bottom of the iris gradient
   pupil: number; // pupil scale 0.5..1.5
+  lowerLash: boolean;
+  liner: number; // 0..1 eyeliner darkness
 }
 
-export const defaultEye = (): EyeStyle => ({ iris: 'gem', highlight: 'double', color2: '#e3b77a', pupil: 1 });
+export const defaultEye = (): EyeStyle => ({ iris: 'gem', highlight: 'double', color2: '#e3b77a', pupil: 1, lowerLash: true, liner: 0.5 });
 
 export const IRIS_STYLES = [
   ['original', '原版'], ['gem', '宝石'], ['clear', '清澈'], ['ring', '电波圈'],

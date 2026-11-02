@@ -322,7 +322,7 @@ socks.name = "Socks"
 bpy.context.collection.objects.link(socks)
 skin_i = [i for i, m in enumerate(socks.data.materials) if "SKIN" in m.name][0]
 foot_z = bone_pos("J_Bip_L_Foot").z
-sock_top = foot_z + (l_lower_leg.z - foot_z) * 0.36  # crew length: about a third up the calf
+sock_top = foot_z + 0.05  # ankle socks: just above the ankle bone
 bm = bmesh.new()
 bm.from_mesh(socks.data)
 kill = [f for f in bm.faces if f.material_index != skin_i or not (0.05 < (socks.matrix_world @ f.calc_center_median()).z < sock_top)]
@@ -333,8 +333,8 @@ for v in bm.verts:
     ax = Vector((side * abs(l_lower_leg.x), l_lower_leg.y))
     d = Vector((v.co.x - ax.x, v.co.y - ax.y))
     # slouchy: soft bunched folds in the upper part, a little looser at the top
-    t = max(0.0, (v.co.z - (sock_top - 0.075)) / 0.075)
-    folds = abs(math.sin((v.co.z - foot_z) * 140.0)) * 0.0035 * t
+    t = max(0.0, (v.co.z - (sock_top - 0.035)) / 0.035)
+    folds = abs(math.sin((v.co.z - foot_z) * 180.0)) * 0.003 * t
     if d.length > 1e-5:
         d.normalize()
         push = 0.0035 + 0.003 * t + folds
@@ -344,6 +344,42 @@ bm.to_mesh(socks.data)
 bm.free()
 socks.data.materials.clear()
 socks.data.materials.append(make_mat("Socks_CLOTH", (0.92, 0.91, 0.88)))
+
+# rolled cuff around each ankle: hides the ragged cut edge of the low-res leg mesh
+sock_mat = socks.data.materials[0]
+cuffs = []
+sv = [socks.matrix_world @ v.co for v in socks.data.vertices]
+for side in (1, -1):
+    ring = [p for p in sv if p.x * side > 0 and abs(p.z - (sock_top - 0.01)) < 0.014]
+    if not ring:
+        continue
+    cx = sum(p.x for p in ring) / len(ring)
+    cy = sum(p.y for p in ring) / len(ring)
+    bins = [0.0] * 36
+    for p in ring:
+        b = int(((math.atan2(p.x - cx, p.y - cy) % (2 * math.pi)) / (2 * math.pi)) * 36) % 36
+        bins[b] = max(bins[b], math.hypot(p.x - cx, p.y - cy))
+    for _ in range(3):
+        bins = [max(bins[i], 0.5 * (bins[i - 1] + bins[(i + 1) % 36])) for i in range(36)]
+
+    def cuff_pt(u, v, cx=cx, cy=cy, bins=bins):
+        a = u * 2 * math.pi
+        f = u * 36
+        r0 = bins[int(f) % 36] * (1 - (f % 1)) + bins[(int(f) + 1) % 36] * (f % 1)
+        bulge = math.sin(math.pi * v) * 0.0045  # rolled, rounded edge
+        r = r0 + 0.003 + bulge
+        return Vector((cx + math.sin(a) * r, cy + math.cos(a) * r, sock_top - 0.012 + 0.026 * v))
+
+    c = make_ring_mesh("Socks_Cuff_%s" % ("L" if side > 0 else "R"), 6, 48, cuff_pt)
+    c.data.materials.append(sock_mat)
+    bone = "J_Bip_L_LowerLeg" if side > 0 else "J_Bip_R_LowerLeg"
+    c.vertex_groups.new(name=bone).add(list(range(len(c.data.vertices))), 1.0, "REPLACE")
+    c.parent = arm
+    m = c.modifiers.new("Armature", "ARMATURE")
+    m.object = arm
+    for poly in c.data.polygons:
+        poly.use_smooth = True
+    cuffs.append(c)
 
 # ── skin weights for generated parts ───────────────────────────────────
 def weight_by_height(ob, groups):
@@ -397,7 +433,7 @@ for ob in (skirt, band, collar, button):
 # drop the original body from the export
 bpy.data.objects.remove(body)
 bpy.ops.object.select_all(action="DESELECT")
-for ob in (arm, bodice, skirt, band, collar, button, socks):
+for ob in (arm, bodice, skirt, band, collar, button, socks, *cuffs):
     ob.select_set(True)
 bpy.ops.export_scene.gltf(
     filepath=dst,

@@ -26,17 +26,17 @@ export interface HairStyle {
 }
 
 export const defaultHair = (): HairStyle => ({
-  mode: 'custom', front: 'uneven', side: 'none', back: 'flipbob', frontLen: 1, sideLen: 1, backLen: 1, volume: 0.5, headband: true, pins: true,
+  mode: 'custom', front: 'uneven', side: 'frame', back: 'flipbob', frontLen: 1, sideLen: 1, backLen: 1, volume: 0.5, headband: true, pins: true,
 });
 
 export const FRONT_STYLES = [
   ['uneven', '短碎刘海'], ['blunt', '齐刘海'], ['side', '斜刘海'], ['center', '中分'], ['air', '空气刘海'], ['none', '露额头'],
 ] as const;
 export const SIDE_STYLES = [
-  ['none', '无'], ['short', '短鬓发'], ['long', '长鬓发'], ['hime', '公主切'],
+  ['none', '无'], ['frame', '触角（顺脸外卷）'], ['short', '短鬓发'], ['long', '长鬓发'], ['hime', '公主切'],
 ] as const;
 export const BACK_STYLES = [
-  ['flipbob', '外翘波浪波波头'], ['short', '短发'], ['bob', '波波头'], ['medium', '中长发'], ['long', '长直发'],
+  ['flipbob', '菱形外翘波波头'], ['short', '短发'], ['bob', '波波头'], ['medium', '中长发'], ['long', '长直发'],
   ['ponytail', '高马尾'], ['twintail', '双马尾'], ['bun', '丸子头'],
 ] as const;
 
@@ -75,6 +75,8 @@ interface StrandSpec {
   collideSkull?: boolean;
   flat?: boolean; // hugs the scalp (tied hair)
   wave?: number; // wavy hair amplitude (m)
+  /** diamond silhouette: extra fullness at the cheekbones, pinch above the tips */
+  diamond?: { full: number; pinch: number; tipY: number };
 }
 
 function growStrand(s: StrandSpec, volume: number): THREE.Vector3[] {
@@ -108,14 +110,28 @@ function growStrand(s: StrandSpec, volume: number): THREE.Vector3[] {
   }
   // soft waves, growing toward the tips
   if (s.wave && pts.length > 6) {
-    const phase = s.az * 3.1;
+    // coherent waves: phase from height, so neighbouring strands move together
+    // (like a real perm) instead of crossing each other
     for (let i = 1; i < pts.length; i++) {
       const t = i / (pts.length - 1);
       const az = Math.atan2(pts[i].x - SKULL_C.x, pts[i].z - SKULL_C.z);
-      const side = new THREE.Vector3(Math.cos(az), 0, -Math.sin(az));
       const out = new THREE.Vector3(Math.sin(az), 0, Math.cos(az));
-      const w = Math.sin(t * Math.PI * 2.6 + phase) * s.wave * t;
-      pts[i].addScaledVector(side, w).addScaledVector(out, Math.abs(w) * 0.5);
+      const w = Math.sin((1.6 - pts[i].y) * 55) * s.wave * t;
+      pts[i].addScaledVector(out, w);
+    }
+  }
+  // diamond (くびれ) silhouette: fuller at cheekbone height, nipped in just above
+  // the tips so the outward flick reads; then re-collide so nothing sinks in
+  if (s.diamond) {
+    const { full, pinch, tipY } = s.diamond;
+    for (const p of pts) {
+      const out = new THREE.Vector3(p.x - SKULL_C.x, 0, p.z - SKULL_C.z);
+      if (out.lengthSq() < 1e-8) continue;
+      out.normalize();
+      const bump = (c: number, w: number) => Math.exp(-(((p.y - c) / w) ** 2));
+      p.addScaledVector(out, full * bump(1.455, 0.045) - pinch * bump(tipY + 0.035, 0.02));
+      pushOut(p, SKULL_C, SKULL_R, 1.02);
+      for (const b of BODY) pushOut(p, b.c, b.r, 1.0 + 0.012 / b.r.y);
     }
   }
   // tip curl (outward flip or inward bob curl) over the last 25%
@@ -167,6 +183,39 @@ function frontStrands(style: string, L: number): StrandSpec[] {
 }
 
 /**
+ * ひし形くびれ外ハネボブ (2025 trend): wide clumps whose tips are aligned within
+ * each clump and split into two points, a full diamond silhouette at the
+ * cheekbones, pinched above the ends, soft (not exaggerated) outward flicks,
+ * and every few clumps flicking less for movement. Three layers: a tucked
+ * inner layer, a middle layer and the outer flicking layer.
+ */
+function diamondBob(tipY: number): StrandSpec[] {
+  const out: StrandSpec[] = [];
+  const span = Math.PI - 1.05;
+  const layers = [
+    { el: 0.42, n: 13, w: 0.036, layer: 1.035, curl: -0.3, len: 0.014, fork: false }, // inner, tucked
+    { el: 0.27, n: 14, w: 0.038, layer: 1.055, curl: 0.45, len: 0.006, fork: false },
+    { el: 0.1, n: 14, w: 0.044, layer: 1.075, curl: 0.75, len: 0, fork: true }, // outer, split tips
+  ];
+  layers.forEach((Ly, r) => {
+    for (let i = 0; i < Ly.n; i++) {
+      const az = Math.PI + (i / (Ly.n - 1) - 0.5) * 2 * span + (r % 2 ? span / Ly.n : 0);
+      const clumpY = tipY + Ly.len + (rnd(i * 7 + r) - 0.5) * 0.03; // tips aligned within the clump
+      const lazy = (i + r) % 4 === 0 ? 0.5 : 1; // some clumps flick less → movement
+      const forks = Ly.fork ? [-1, 1] : [0];
+      for (const fork of forks) {
+        out.push({
+          az: az + fork * 0.035, el: Ly.el * Math.PI + rnd(i + r * 31) * 0.03, w: Ly.w * (Ly.fork ? 0.6 : 1),
+          stopY: clumpY - (fork > 0 ? 0.008 : 0), curl: Ly.curl * lazy, layer: Ly.layer, wave: 0.004,
+          drift: fork * 0.05, diamond: { full: 0.018, pinch: 0.012, tipY },
+        });
+      }
+    }
+  });
+  return out;
+}
+
+/**
  * Short, choppy, see-through-ish bangs (Letha): a hidden under-layer of wide
  * strands so the forehead never shows through, then thin wisps in small
  * clusters of 2–3 whose tips lean together, each cluster cut at its own
@@ -203,6 +252,15 @@ function choppyBangs(L: number, browY: number): StrandSpec[] {
 function sideStrands(style: string, L: number): StrandSpec[] {
   if (style === 'none') return [];
   const out: StrandSpec[] = [];
+  if (style === 'frame') {
+    // 触角: face-framing strands from the temples, hugging the cheek, ends curled
+    // outward and swept back (外巻き)
+    for (const side of [-1, 1]) {
+      out.push({ az: side * 0.9, el: 0.2 * Math.PI, w: 0.02, stopY: 1.385 - (L - 1) * 0.06, curl: 0.7, drift: side * 0.35, layer: 1.07, wave: 0.002 });
+      out.push({ az: side * 0.98, el: 0.22 * Math.PI, w: 0.013, stopY: 1.4 - (L - 1) * 0.06, curl: 0.6, drift: side * 0.45, layer: 1.075 });
+    }
+    return out;
+  }
   for (const side of [-1, 1]) {
     const n = style === 'hime' ? 5 : 4;
     for (let i = 0; i < n; i++) {
@@ -256,7 +314,7 @@ function backStrands(style: string, L: number): StrandSpec[] {
       }
   };
   switch (style) {
-    case 'flipbob': shell(1.36 - (L - 1) * 0.06, 1.0, 3, 22, 0, 0.007); break;
+    case 'flipbob': out.push(...diamondBob(1.365 - (L - 1) * 0.06)); break;
     case 'short': shell(1.39 - (L - 1) * 0.05, -0.2, 3, 20); break;
     case 'bob': shell(1.355 - (L - 1) * 0.06, -0.7, 3, 20); break;
     case 'medium': shell(1.25 - (L - 1) * 0.1, 0.3, 3, 20); break;
@@ -404,7 +462,7 @@ function laceTexture() {
 
 /** Crochet headband over the top of the head, ear to ear, outside the hair. */
 function headbandMesh(volume: number) {
-  const N = 64, s = 1.13 + volume * 0.05, halfW = 0.013, th = 0.004;
+  const N = 64, s = 1.1 + volume * 0.03, halfW = 0.012, th = 0.0035;
   const pos: number[] = [], uv: number[] = [], idx: number[] = [];
   for (let i = 0; i <= N; i++) {
     const t = (i / N) * 2 - 1;
