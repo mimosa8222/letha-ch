@@ -243,6 +243,24 @@ def shoulder_z(x, y):
 gap = 0.12
 
 
+# the collar lies flat ON the dress: start from a parametric drape, then snap
+# every point to the nearest point of the bodice surface (+ a small offset)
+_bod = bmesh.new()
+_bod.from_mesh(bodice.data)
+bmesh.ops.transform(_bod, matrix=bodice.matrix_world, verts=_bod.verts)
+_bod.normal_update()
+bodice_bvh = BVHTree.FromBMesh(_bod)
+
+
+def on_bodice(p, off=0.0045):
+    loc, nrm, _i, _d = bodice_bvh.find_nearest(p)
+    if loc is None:
+        return p
+    if nrm.z < -0.2:  # never snap to the underside / inside of the neckline
+        nrm = Vector((nrm.x, nrm.y, abs(nrm.z)))
+    return loc + nrm.normalized() * off
+
+
 def collar_pt(u, v):
     a = gap + u * (2 * math.pi - 2 * gap)  # a=0 → front (-Y)
     d = min(a, 2 * math.pi - a) - gap
@@ -250,19 +268,18 @@ def collar_pt(u, v):
     k = math.sqrt(max(0, 1 - ((lobe - d) / lobe) ** 2)) if d < lobe else 1
     r = neck_r + (0.03 + 0.048 * k) * v
     x, y = math.sin(a) * r, neck.y - math.cos(a) * r * 0.8
-    return Vector((x, y, shoulder_z(x, y) + 0.014))
+    return on_bodice(Vector((x, y, neck.z - 0.006 - 0.055 * v)))
 
 
 bm = bmesh.new()
 rows, seg = 8, 160
 pts = [[collar_pt(i / seg, j / rows) for i in range(seg + 1)] for j in range(rows + 1)]
-# smooth the draped height along the collar so the edge is clean, not jagged
-for j in range(rows + 1):
-    zs = [p.z for p in pts[j]]
-    for _ in range(6):
-        zs = [zs[0]] + [(zs[i - 1] + 2 * zs[i] + zs[i + 1]) / 4 for i in range(1, seg)] + [zs[-1]]
-    for i in range(seg + 1):
-        pts[j][i].z = max(zs[i], pts[j][i].z - 0.004)
+# relax along the collar, then re-snap: smooth, even edge that still hugs the dress
+for _ in range(3):
+    for j in range(rows + 1):
+        row = pts[j]
+        sm = [row[0]] + [(row[i - 1] + row[i] * 2 + row[i + 1]) / 4 for i in range(1, seg)] + [row[-1]]
+        pts[j] = [on_bodice(p) for p in sm]
 grid = [[bm.verts.new(p) for p in row] for row in pts]
 uvl = bm.loops.layers.uv.new("UVMap")
 coord = {}
@@ -282,7 +299,7 @@ collar = bpy.data.objects.new("Dress_Collar", me)
 bpy.context.collection.objects.link(collar)
 collar.data.materials.append(coll_mat)
 sol = collar.modifiers.new("thick", "SOLIDIFY")
-sol.thickness = 0.006
+sol.thickness = 0.0035
 sol.offset = 1
 
 # gold button at the front of the collar
@@ -304,7 +321,8 @@ socks.data = body.data.copy()
 socks.name = "Socks"
 bpy.context.collection.objects.link(socks)
 skin_i = [i for i, m in enumerate(socks.data.materials) if "SKIN" in m.name][0]
-sock_top = l_lower_leg.z - 0.2
+foot_z = bone_pos("J_Bip_L_Foot").z
+sock_top = foot_z + (l_lower_leg.z - foot_z) * 0.36  # crew length: about a third up the calf
 bm = bmesh.new()
 bm.from_mesh(socks.data)
 kill = [f for f in bm.faces if f.material_index != skin_i or not (0.05 < (socks.matrix_world @ f.calc_center_median()).z < sock_top)]
@@ -314,10 +332,12 @@ for v in bm.verts:
     side = 1 if v.co.x > 0 else -1
     ax = Vector((side * abs(l_lower_leg.x), l_lower_leg.y))
     d = Vector((v.co.x - ax.x, v.co.y - ax.y))
-    t = max(0.0, (v.co.z - (sock_top - 0.05)) / 0.05)  # slouchy, slightly looser top
+    # slouchy: soft bunched folds in the upper part, a little looser at the top
+    t = max(0.0, (v.co.z - (sock_top - 0.075)) / 0.075)
+    folds = abs(math.sin((v.co.z - foot_z) * 140.0)) * 0.0035 * t
     if d.length > 1e-5:
         d.normalize()
-        push = 0.0035 + 0.004 * t
+        push = 0.0035 + 0.003 * t + folds
         v.co.x += d.x * push
         v.co.y += d.y * push
 bm.to_mesh(socks.data)

@@ -146,13 +146,13 @@ function frontStrands(style: string, L: number): StrandSpec[] {
     }
     return out;
   }
-  const n = style === 'air' ? 9 : style === 'uneven' ? 17 : 19;
+  if (style === 'uneven') return choppyBangs(L, browY);
+  const n = style === 'air' ? 9 : 19;
   for (let i = 0; i < n; i++) {
     const t = i / (n - 1); // 0 = character's right … 1 = left
     const az = -0.95 + 1.9 * t + (rnd(i + 3) - 0.5) * 0.05;
     const el = 0.13 * Math.PI + rnd(i) * 0.03;
     const j = (rnd(i + 11) - 0.5) * 0.012;
-    if (style === 'uneven') out.push({ az, el, w: 0.018, stopY: browY + 0.016 + (rnd(i * 5 + 1) - 0.5) * 0.026 - (L - 1) * 0.05, layer: 1.04 + rnd(i) * 0.012, wave: 0.003 });
     if (style === 'blunt') out.push({ az, el, w: 0.019, stopY: browY - 0.004 + j * 0.3 - (L - 1) * 0.05, layer: 1.04 + rnd(i) * 0.015 });
     if (style === 'air') out.push({ az, el, w: 0.011, stopY: browY + 0.006 + j - (L - 1) * 0.05, layer: 1.035 });
     if (style === 'center') {
@@ -163,6 +163,40 @@ function frontStrands(style: string, L: number): StrandSpec[] {
       out.push({ az, el, w: 0.019, drift: -0.75, stopY: browY + 0.012 - t * 0.045 - (L - 1) * 0.06 + j, layer: 1.04 + rnd(i) * 0.01 });
     }
   }
+  return out;
+}
+
+/**
+ * Short, choppy, see-through-ish bangs (Letha): a hidden under-layer of wide
+ * strands so the forehead never shows through, then thin wisps in small
+ * clusters of 2–3 whose tips lean together, each cluster cut at its own
+ * length, plus a couple of longer stray wisps. Tips flick slightly forward.
+ */
+function choppyBangs(L: number, browY: number): StrandSpec[] {
+  const out: StrandSpec[] = [];
+  const cut = (L - 1) * 0.05;
+  // under-layer
+  for (let i = 0; i < 13; i++) {
+    const az = -0.92 + (1.84 * i) / 12;
+    out.push({ az, el: 0.16 * Math.PI, w: 0.024, stopY: browY + 0.022 - cut, layer: 1.03 });
+  }
+  // clustered wisps on top
+  let k = 0;
+  for (let c = 0; c < 9; c++) {
+    const center = -0.95 + (1.9 * (c + 0.5)) / 9 + (rnd(c + 40) - 0.5) * 0.06;
+    const len = browY + 0.004 + (rnd(c * 3 + 7) - 0.4) * 0.03 - cut; // each cluster its own length
+    const count = 2 + (rnd(c + 13) > 0.55 ? 1 : 0);
+    for (let j = 0; j < count; j++, k++) {
+      const az = center + (j - (count - 1) / 2) * 0.075;
+      out.push({
+        az, el: 0.12 * Math.PI + rnd(k) * 0.03, w: 0.011 + rnd(k + 9) * 0.005,
+        stopY: len + (rnd(k + 21) - 0.5) * 0.008, drift: (center - az) * 2.2,
+        layer: 1.045 + rnd(k + 3) * 0.012, curl: 0.18, wave: 0.0015,
+      });
+    }
+  }
+  // a couple of longer stray wisps
+  for (const az of [-0.32, 0.41]) out.push({ az, el: 0.12 * Math.PI, w: 0.009, stopY: browY - 0.022 - cut, layer: 1.06, curl: 0.12, drift: -az * 0.4 });
   return out;
 }
 
