@@ -133,6 +133,7 @@ export class Character implements Subject {
       white: find(/EyeWhite/),
       mouth: find(/FaceMouth/),
       skin: find(/^Face_00_SKIN/),
+      brow: find(/FaceBrow/),
     });
 
     for (const mesh of find(/HAIR/)) for (const m of [mesh.material].flat()) this.prepTint(m as MToonMaterial, this.hairMats, 1.5, true);
@@ -164,12 +165,12 @@ export class Character implements Subject {
     list.push(m);
   }
 
-  private tint(list: MToonMaterial[], hex: string, shade = 0.72) {
+  private tint(list: MToonMaterial[], hex: string, shade = 0.8) {
     const c = new THREE.Color(hex);
     const hsl = { h: 0, s: 0, l: 0 };
     c.getHSL(hsl);
     // anime shading: shadow color is a darker, slightly cooler & more saturated version
-    const sh = new THREE.Color().setHSL((hsl.h + 0.97) % 1, Math.min(1, hsl.s * 1.15 + 0.05), hsl.l * shade);
+    const sh = new THREE.Color().setHSL((hsl.h + 0.985) % 1, Math.min(1, hsl.s * 1.05 + 0.03), hsl.l * shade);
     for (const m of list) {
       m.color.copy(c);
       if (m.shadeColorFactor) m.shadeColorFactor.copy(sh);

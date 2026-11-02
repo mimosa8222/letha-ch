@@ -35,6 +35,10 @@ export class Viewer {
     const key = new THREE.DirectionalLight('#ffffff', 2.1);
     key.position.set(0.6, 1.8, 2.2);
     this.scene.add(key);
+    // soft back light so the character reads from every angle
+    const back = new THREE.DirectionalLight('#f1ecff', 1.1);
+    back.position.set(-0.4, 1.6, -2.2);
+    this.scene.add(back);
     const floor = new THREE.Mesh(new THREE.CircleGeometry(0.75, 64), new THREE.MeshBasicMaterial({ color: '#d6cfdd' }));
     floor.rotation.x = -Math.PI / 2;
     this.scene.add(floor);

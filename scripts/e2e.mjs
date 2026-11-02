@@ -33,7 +33,7 @@ await page.click('nav.tabs button:has-text("捏脸")');
 await page.waitForTimeout(800);
 await shot('02-face-default');
 const keys = await page.$$eval('input[data-param]', (els) => els.map((e) => e.dataset.param));
-check('12 face parameters present', keys.length >= 12, keys.join(','));
+check('26 face parameters present', keys.length >= 26, `${keys.length}`);
 for (const k of keys) {
   await page.fill(`input[data-param=${k}]`, '1');
   await page.waitForTimeout(50);
@@ -43,6 +43,17 @@ for (const k of keys) {
 }
 await page.waitForTimeout(50);
 check('params back to 0 restore rest mesh', (await disp()) < 1e-6);
+// eyebrows are independent from the eyes
+const dispTag = (t) => page.evaluate((t) => window.app.character.shaper.displacement(t), t);
+await page.fill('input[data-param=eyeSize]', '1');
+await page.fill('input[data-param=eyeHeight]', '1');
+check('eye params do not move eyebrows', (await dispTag('brow')) < 1e-6, `brow Σ|Δ|=${(await dispTag('brow')).toFixed(5)}`);
+await page.fill('input[data-param=eyeSize]', '0');
+await page.fill('input[data-param=eyeHeight]', '0');
+await page.fill('input[data-param=browHeight]', '1');
+const bd = await dispTag('brow'), ed = await dispTag('eye');
+check('brow params move only eyebrows', bd > 1e-3 && ed < 1e-6, `brow=${bd.toFixed(4)} eye=${ed.toFixed(6)}`);
+await page.fill('input[data-param=browHeight]', '0');
 
 // seam check: max gap between coincident face/neck vertices stays tiny
 const extreme = { eyeSize: 1, eyeSpacing: 0.6, eyeAngle: 0.7, faceWidth: -0.8, faceLength: 0.6, chinLength: 0.8, jawWidth: -0.8, noseHeight: 1, noseWidth: -0.5, mouthWidth: -0.6, mouthHeight: 0.5, eyeHeight: -0.4 };

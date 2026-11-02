@@ -42,9 +42,9 @@ export const BACK_STYLES = [
 const SKULL_C = new THREE.Vector3(0, 1.468, -0.025);
 const SKULL_R = new THREE.Vector3(0.1, 0.13, 0.115);
 const BODY: { c: THREE.Vector3; r: THREE.Vector3 }[] = [
-  { c: new THREE.Vector3(0, 1.12, -0.01), r: new THREE.Vector3(0.165, 0.22, 0.125) }, // torso
-  { c: new THREE.Vector3(0.13, 1.285, -0.01), r: new THREE.Vector3(0.085, 0.06, 0.075) }, // shoulders
-  { c: new THREE.Vector3(-0.13, 1.285, -0.01), r: new THREE.Vector3(0.085, 0.06, 0.075) },
+  { c: new THREE.Vector3(0, 1.12, -0.01), r: new THREE.Vector3(0.185, 0.235, 0.145) }, // torso (+ clothes)
+  { c: new THREE.Vector3(0.13, 1.28, -0.01), r: new THREE.Vector3(0.1, 0.07, 0.09) }, // shoulders
+  { c: new THREE.Vector3(-0.13, 1.28, -0.01), r: new THREE.Vector3(0.1, 0.07, 0.09) },
   { c: new THREE.Vector3(0, 1.32, -0.02), r: new THREE.Vector3(0.055, 0.09, 0.055) }, // neck
 ];
 
@@ -122,13 +122,14 @@ function frontStrands(style: string, L: number): StrandSpec[] {
   const browY = 1.485;
   if (style === 'none') {
     // swept back: short strands from the hairline toward the crown/back
-    for (let i = 0; i < 12; i++) {
-      const az = -0.9 + (1.8 * i) / 11;
-      out.push({ az, el: 0.36 * Math.PI, w: 0.016, len: 0.09, startDir: dirOf(az, 0.1).negate().add(new THREE.Vector3(0, 0.6, 0)).normalize(), gravity: 0, layer: 1.04 });
+    for (let i = 0; i < 16; i++) {
+      const az = -1.0 + (2.0 * i) / 15;
+      const up = onSkull(az, 0.3 * Math.PI).sub(onSkull(az, 0.36 * Math.PI)).normalize();
+      out.push({ az, el: 0.37 * Math.PI, w: 0.02, len: 0.11, startDir: up, gravity: 0, layer: 1.035 });
     }
     return out;
   }
-  const n = style === 'air' ? 9 : 15;
+  const n = style === 'air' ? 9 : 19;
   for (let i = 0; i < n; i++) {
     const t = i / (n - 1); // 0 = character's right … 1 = left
     const az = -0.95 + 1.9 * t + (rnd(i + 3) - 0.5) * 0.05;
@@ -156,7 +157,7 @@ function sideStrands(style: string, L: number): StrandSpec[] {
       const az = side * (1.02 + i * 0.09);
       const el = 0.27 * Math.PI + i * 0.02;
       const j = (rnd(i * 7 + side) - 0.5) * 0.015;
-      if (style === 'short') out.push({ az, el, w: 0.017, stopY: 1.37 - (L - 1) * 0.08 + j, curl: -0.4, layer: 1.05 });
+      if (style === 'short') out.push({ az, el, w: 0.018, stopY: 1.37 - (L - 1) * 0.08 + j, curl: -0.15, layer: 1.06 });
       if (style === 'long') out.push({ az, el, w: 0.018, stopY: 1.14 - (L - 1) * 0.15 + j * 2, drift: side * -0.08, layer: 1.05 });
       if (style === 'hime') out.push({ az: side * (0.98 + i * 0.07), el, w: 0.02, stopY: 1.4 - (L - 1) * 0.08, gravity: 0.35, layer: 1.05 });
     }
@@ -196,16 +197,16 @@ function backStrands(style: string, L: number): StrandSpec[] {
       for (let i = 0; i < cols; i++) {
         const span = Math.PI - 1.1;
         const az = Math.PI + (i / (cols - 1) - 0.5) * 2 * span + (r ? span / cols : 0);
-        const el = (r ? 0.3 : 0.1) * Math.PI + rnd(i + r * 31) * 0.04;
+        const el = [0.1, 0.27, 0.42][r] * Math.PI + rnd(i + r * 31) * 0.04;
         const j = (rnd(i * 3 + r) - 0.5) * 0.03;
-        out.push({ az, el, w: 0.03, stopY: stopY + j, curl, layer: 1.03 + r * 0.025, drift: drift * Math.sign(Math.sin(az)) });
+        out.push({ az, el, w: 0.03, stopY: stopY + j - r * 0.004, curl, layer: 1.035 + (2 - r) * 0.018, drift: drift * Math.sign(Math.sin(az)) });
       }
   };
   switch (style) {
-    case 'short': shell(1.39 - (L - 1) * 0.05, -0.3); break;
-    case 'bob': shell(1.355 - (L - 1) * 0.06, -0.9); break;
-    case 'medium': shell(1.25 - (L - 1) * 0.1, 0.8); break;
-    case 'long': shell(0.92 - (L - 1) * 0.2, 0.2, 3); break;
+    case 'short': shell(1.39 - (L - 1) * 0.05, -0.2, 3, 20); break;
+    case 'bob': shell(1.355 - (L - 1) * 0.06, -0.7, 3, 20); break;
+    case 'medium': shell(1.25 - (L - 1) * 0.1, 0.3, 3, 20); break;
+    case 'long': shell(0.92 - (L - 1) * 0.2, 0.1, 3, 20); break;
     case 'ponytail': {
       const tie = new THREE.Vector3(0, 1.545, -0.135);
       out.push(...tieStrands(tie, Math.PI - 2.1, Math.PI + 2.1, 12));
@@ -233,8 +234,8 @@ function backStrands(style: string, L: number): StrandSpec[] {
 function strandGeometry(pts: THREE.Vector3[], w0: number, pos: number[], nor: number[], uv: number[], idx: number[]) {
   if (pts.length < 3) return;
   const curve = new THREE.CatmullRomCurve3(pts, false, 'centripetal');
-  const S = Math.min(24, Math.max(6, pts.length));
-  const R = 8;
+  const S = Math.min(36, Math.max(8, pts.length));
+  const R = 10;
   const base = pos.length / 3;
   const T = new THREE.Vector3(), N = new THREE.Vector3(), B = new THREE.Vector3(), P = new THREE.Vector3();
   for (let i = 0; i <= S; i++) {
@@ -251,9 +252,11 @@ function strandGeometry(pts: THREE.Vector3[], w0: number, pos: number[], nor: nu
       const a = (k / R) * Math.PI * 2;
       const ca = Math.cos(a), sa = Math.sin(a);
       pos.push(P.x + B.x * ca * w + N.x * sa * th, P.y + B.y * ca * w + N.y * sa * th, P.z + B.z * ca * w + N.z * sa * th);
-      const n = new THREE.Vector3().addScaledVector(B, ca * th).addScaledVector(N, sa * w).normalize();
+      // blend toward the clump/head normal so neighbouring strands shade as one mass
+      const n = new THREE.Vector3().addScaledVector(B, ca * th).addScaledVector(N, sa * w).normalize().multiplyScalar(0.45).addScaledVector(N, 0.55).normalize();
       nor.push(n.x, n.y, n.z);
-      uv.push(k / R, t);
+      // v from world height: one continuous highlight ring around the whole head
+      uv.push(k / R, Math.min(1, Math.max(0, (1.62 - P.y) / 0.75)));
     }
   }
   for (let i = 0; i < S; i++)
@@ -277,7 +280,7 @@ function capGeometry(style: HairStyle, pos: number[], nor: number[], uv: number[
       pos.push(p.x, p.y, p.z);
       const n = p.clone().sub(SKULL_C).divide(SKULL_R).divide(SKULL_R).normalize();
       nor.push(n.x, n.y, n.z);
-      uv.push(i / A, (j / E) * 0.3);
+      uv.push(i / A, Math.min(1, Math.max(0, (1.62 - p.y) / 0.75)));
     }
   }
   for (let i = 0; i < A; i++)
@@ -306,11 +309,11 @@ function hairTexture() {
   c.width = 64; c.height = 256;
   const ctx = c.getContext('2d')!;
   const g = ctx.createLinearGradient(0, 0, 0, 256);
-  g.addColorStop(0, '#a8a8a8'); g.addColorStop(0.1, '#e0e0e0'); g.addColorStop(0.16, '#ffffff');
-  g.addColorStop(0.22, '#d6d6d6'); g.addColorStop(0.7, '#d2d2d2'); g.addColorStop(1, '#a0a0a0');
+  g.addColorStop(0, '#cfcfcf'); g.addColorStop(0.085, '#d8d8d8'); g.addColorStop(0.105, '#ffffff');
+  g.addColorStop(0.125, '#f2f2f2'); g.addColorStop(0.145, '#d4d4d4'); g.addColorStop(0.6, '#cdcdcd'); g.addColorStop(1, '#b0b0b0');
   ctx.fillStyle = g; ctx.fillRect(0, 0, 64, 256);
-  ctx.globalAlpha = 0.12; ctx.fillStyle = '#000';
-  for (let x = 4; x < 64; x += 9) ctx.fillRect(x, 0, 2, 256);
+  ctx.globalAlpha = 0.07; ctx.fillStyle = '#000';
+  for (let x = 3; x < 64; x += 8) ctx.fillRect(x, 0, 1, 256);
   hairTex = new THREE.CanvasTexture(c);
   hairTex.colorSpace = THREE.SRGBColorSpace;
   hairTex.wrapS = THREE.RepeatWrapping;

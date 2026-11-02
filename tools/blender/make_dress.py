@@ -45,7 +45,7 @@ l_lower_leg = bone_pos("J_Bip_L_LowerLeg")
 l_upper_leg = bone_pos("J_Bip_L_UpperLeg")
 print("landmarks", neck, hips, spine, l_upper_arm, l_lower_leg)
 
-waist_z = spine.z + 0.02
+waist_z = spine.z + 0.04  # natural waist
 sleeve_x = abs(l_upper_arm.x) + 0.11  # short puff-ish sleeve
 hem_z = l_lower_leg.z + 0.08          # just above the knee
 
@@ -71,9 +71,17 @@ for f in bm.faces:
         kill.append(f)
 bmesh.ops.delete(bm, geom=kill, context="FACES")
 bmesh.ops.delete(bm, geom=[v for v in bm.verts if not v.link_faces], context="VERTS")
-# tighten the loose T-shirt a little toward a fitted bodice
+# turn the boxy T-shirt into a fitted bodice: nip in the waist, puff the sleeves
+chest_z = spine.z + 0.2
 for v in bm.verts:
-    v.co -= v.normal * 0.004
+    w = mw @ v.co
+    if abs(w.x) < 0.135:  # torso
+        k = max(0.0, min(1.0, (chest_z - w.z) / (chest_z - waist_z)))
+        k = k * k * (3 - 2 * k)
+        v.co.x *= 1 - 0.1 * k
+        v.co.y = hips.y + (v.co.y - hips.y) * (1 - 0.03 * k)
+    else:  # sleeves: a little puff
+        v.co += v.normal * 0.006
 bm.to_mesh(bodice.data)
 bm.free()
 bodice.data.materials.clear()
@@ -94,6 +102,30 @@ wx = max(abs(p.x) for p in ring)
 wy = max(abs(p.y - hips.y) for p in ring)
 cy = sum(p.y for p in ring) / len(ring)
 print("waist", waist_z, wx, wy)
+
+# actual bodice outline at the waist, per angle (so band & skirt fit it exactly)
+BINS = 72
+ring_bins = [0.0] * BINS
+for p in co:
+    if abs(p.z - waist_z) < 0.025 and abs(p.x) < 0.2:
+        a = math.atan2(p.x, -(p.y - cy)) % (2 * math.pi)  # 0 = front (-Y)
+        b = int(a / (2 * math.pi) * BINS) % BINS
+        ring_bins[b] = max(ring_bins[b], math.hypot(p.x, p.y - cy))
+# where the sample is sparse (front centre), fall back to the fitted ellipse
+for i in range(BINS):
+    a = (i + 0.5) / BINS * 2 * math.pi
+    ell_r = 1 / math.sqrt((math.sin(a) / wx) ** 2 + (math.cos(a) / wy) ** 2)
+    ring_bins[i] = max(ring_bins[i], ell_r)
+for _ in range(3):  # smooth
+    ring_bins = [max(ring_bins[i], 0.5 * (ring_bins[i - 1] + ring_bins[(i + 1) % BINS])) for i in range(BINS)]
+ring_bins = [(ring_bins[i - 1] + 2 * ring_bins[i] + ring_bins[(i + 1) % BINS]) / 4 for i in range(BINS)]
+
+
+def ring_r(a):
+    f = (a % (2 * math.pi)) / (2 * math.pi) * BINS
+    i = int(f) % BINS
+    t = f - int(f)
+    return ring_bins[i] * (1 - t) + ring_bins[(i + 1) % BINS] * t
 
 # ── skirt: pleated flare ───────────────────────────────────────────────
 def make_ring_mesh(name, rows, seg, fn):
@@ -125,26 +157,28 @@ pleats = 16
 def skirt_pt(u, v):
     a = u * 2 * math.pi
     z = top_z + (hem_z - top_z) * v
-    # radius profile: waist → over the hips → flared hem
+    # starts exactly on the waist outline, eases over the hips, flares to the hem
     hip_t = min(1.0, (top_z - z) / max(0.01, top_z - hip_z + 0.04))
-    rx = wx + 0.025 + 0.055 * hip_t + 0.09 * max(0.0, v - 0.35)
-    ry = wy + 0.022 + 0.045 * hip_t + 0.08 * max(0.0, v - 0.35)
-    tri = abs(((u * pleats * 2) % 2) - 1)  # 0..1 triangle wave
-    k = 1 + (0.012 + 0.05 * v) * (tri - 0.5)
-    return Vector((math.sin(a) * rx * k, cy - math.cos(a) * ry * k, z))
+    hip_t = hip_t * hip_t * (3 - 2 * hip_t)
+    r = ring_r(a) + 0.006 + 0.05 * hip_t + 0.1 * v ** 1.4
+    tri = abs(((u * pleats * 2) % 2) - 1)  # 0..1 triangle wave → knife pleats
+    k = 1 + (0.004 + 0.06 * v) * (tri - 0.5)
+    return Vector((math.sin(a) * r * k, cy - math.cos(a) * r * k, z))
 
 
-skirt = make_ring_mesh("Dress_Skirt", 14, pleats * 8, skirt_pt)
+pleats = 24
+skirt = make_ring_mesh("Dress_Skirt", 26, pleats * 10, skirt_pt)
 skirt.data.materials.append(dress_mat)
 
 # waistband
 def band_pt(u, v):
     a = u * 2 * math.pi
     z = waist_z + 0.018 - 0.03 * v
-    return Vector((math.sin(a) * (wx + 0.03), cy - math.cos(a) * (wy + 0.026), z))
+    r = ring_r(a) + 0.007 - 0.002 * abs(v - 0.5)
+    return Vector((math.sin(a) * r, cy - math.cos(a) * r, z))
 
 
-band = make_ring_mesh("Dress_Waistband", 2, 96, band_pt)
+band = make_ring_mesh("Dress_Waistband", 4, 144, band_pt)
 band_mat = make_mat("Waistband_CLOTH", (0.015, 0.02, 0.05))
 band.data.materials.append(band_mat)
 
@@ -172,14 +206,22 @@ def collar_pt(u, v):
     d = min(a, 2 * math.pi - a) - gap
     lobe = 0.7
     k = math.sqrt(max(0, 1 - ((lobe - d) / lobe) ** 2)) if d < lobe else 1
-    r = neck_r + (0.028 + 0.042 * k) * v
+    r = neck_r + (0.03 + 0.048 * k) * v
     x, y = math.sin(a) * r, neck.y - math.cos(a) * r * 0.8
     return Vector((x, y, shoulder_z(x, y) + 0.01))
 
 
 bm = bmesh.new()
-rows, seg = 6, 120
-grid = [[bm.verts.new(collar_pt(i / seg, j / rows)) for i in range(seg + 1)] for j in range(rows + 1)]
+rows, seg = 8, 160
+pts = [[collar_pt(i / seg, j / rows) for i in range(seg + 1)] for j in range(rows + 1)]
+# smooth the draped height along the collar so the edge is clean, not jagged
+for j in range(rows + 1):
+    zs = [p.z for p in pts[j]]
+    for _ in range(6):
+        zs = [zs[0]] + [(zs[i - 1] + 2 * zs[i] + zs[i + 1]) / 4 for i in range(1, seg)] + [zs[-1]]
+    for i in range(seg + 1):
+        pts[j][i].z = max(zs[i], pts[j][i].z - 0.004)
+grid = [[bm.verts.new(p) for p in row] for row in pts]
 for j in range(rows):
     for i in range(seg):
         bm.faces.new((grid[j][i], grid[j][i + 1], grid[j + 1][i + 1], grid[j + 1][i]))
@@ -226,6 +268,14 @@ weight_by_height(collar, [
     ("J_Bip_L_Shoulder", lambda p: max(0.0, p.x - 0.04) * 8),
     ("J_Bip_R_Shoulder", lambda p: max(0.0, -p.x - 0.04) * 8),
 ])
+
+# smooth subdivision for clean silhouettes (weights interpolate with it)
+for ob in (bodice, collar):
+    sub = ob.modifiers.new("smooth", "SUBSURF")
+    sub.levels = 1
+    sub.render_levels = 1
+hem = skirt.modifiers.new("hem", "SOLIDIFY")
+hem.thickness = 0.003
 
 for ob in (skirt, band, collar):
     ob.parent = arm
