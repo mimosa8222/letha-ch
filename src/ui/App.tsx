@@ -1,128 +1,158 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { CHARACTERS, defaultLook, togglePart } from '../data/catalog';
-import type { Look, PartDef } from '../data/types';
-import type { Avatar } from '../engine/avatar';
-import { buildPlaceholder } from '../engine/placeholder';
+import { useEffect, useRef, useState } from 'react';
+import { Character, OUTFITS } from '../engine/character';
+import { PARAMS } from '../engine/faceShape';
 import { Viewer, type Framing } from '../engine/viewer';
-import { loadVrmAvatar } from '../engine/vrmAvatar';
-import { lookKey, useStore, vrmFiles } from '../state/store';
-import { PartsPanel } from './PartsPanel';
-import { SavesPanel } from './SavesPanel';
-import { ModelPanel } from './ModelPanel';
+import { useStore } from '../state/store';
 
-type Tab = 'parts' | 'saves' | 'model';
+type Tab = 'face' | 'color' | 'outfit' | 'save';
 
-const params = new URLSearchParams(location.search);
+const HAIR = ['#8a5a3c', '#e2c27a', '#c8a07a', '#2b2326', '#d9d6d2', '#c46a7a', '#5a6fa8'];
+const EYES = ['#8a5a2e', '#6f8fb0', '#b97a9c', '#4f8a64', '#c9a227', '#9a3a3a', '#3c3550'];
+const DRESS = ['#2c3550', '#6d7a4e', '#b8913a', '#8a7a6a', '#9c3b2f', '#e8ddd0', '#202024'];
+
+declare global {
+  interface Window { app?: { viewer: Viewer; character: Character } }
+}
 
 export function App() {
-  const hostRef = useRef<HTMLDivElement>(null);
+  const host = useRef<HTMLDivElement>(null);
   const viewerRef = useRef<Viewer | null>(null);
-  const [parts, setParts] = useState<PartDef[]>([]);
-  const [status, setStatus] = useState<{ loading: boolean; error?: string }>({ loading: true });
-  const [framing, setFraming] = useState<Framing>((params.get('frame') as Framing) || 'full');
-  const [tab, setTab] = useState<Tab>((params.get('tab') as Tab) || 'parts');
-  const [hydrated, setHydrated] = useState(useStore.persist.hasHydrated());
-  const [vrmRev, setVrmRev] = useState(0);
-
-  const { character, source, looks, setCharacter, setLook } = useStore();
-  const src = source[character];
-  const key = lookKey(character, src);
-
-  useEffect(() => useStore.persist.onFinishHydration(() => setHydrated(true)), []);
-  useEffect(() => {
-    const c = params.get('char');
-    if (hydrated && (c === 'letha' || c === 'phicia')) setCharacter(c);
-  }, [hydrated, setCharacter]);
+  const [char, setChar] = useState<Character | null>(null);
+  const [progress, setProgress] = useState(0);
+  const [error, setError] = useState<string | null>(null);
+  const [framing, setFraming] = useState<Framing>('full');
+  const [tab, setTab] = useState<Tab>('face');
+  const { look, setFace, patch, reset, slots, save, load, remove } = useStore();
+  const [name, setName] = useState('');
 
   useEffect(() => {
-    const v = new Viewer(hostRef.current!);
+    const v = new Viewer(host.current!);
     viewerRef.current = v;
-    (window as unknown as { viewer: Viewer }).viewer = v;
-    return () => v.dispose();
+    let alive = true;
+    Character.load(setProgress)
+      .then((c) => {
+        if (!alive) return;
+        v.setSubject(c);
+        setChar(c);
+        window.app = { viewer: v, character: c };
+      })
+      .catch((e) => setError(String(e?.message ?? e)));
+    return () => {
+      alive = false;
+      v.dispose();
+    };
   }, []);
 
-  // (Re)build the avatar whenever character or source changes.
   useEffect(() => {
-    if (!hydrated) return;
-    let cancelled = false;
-    setStatus({ loading: true });
-    (async () => {
-      let avatar: Avatar;
-      try {
-        if (src === 'vrm') {
-          const f = await vrmFiles.get(character);
-          if (!f) throw new Error('还没有上传这个角色的 VRM 文件');
-          avatar = await loadVrmAvatar(f.data, character);
-        } else avatar = buildPlaceholder(character);
-      } catch (e) {
-        if (!cancelled) setStatus({ loading: false, error: String((e as Error).message ?? e) });
-        avatar = buildPlaceholder(character);
-      }
-      if (cancelled) return avatar.dispose();
-      viewerRef.current!.setAvatar(avatar);
-      viewerRef.current!.frame(framing, true);
-      setParts(avatar.parts.map((p) => p.def));
-      setStatus((s) => (s.error ? s : { loading: false }));
-      document.body.dataset.ready = '1';
-    })();
-    return () => {
-      cancelled = true;
-      document.body.dataset.ready = '';
-    };
-    // framing intentionally excluded: changing it shouldn't rebuild the model
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [character, src, hydrated, vrmRev]);
+    if (!char) return;
+    char.applyLook(look).then(() => (document.body.dataset.ready = '1'));
+  }, [char, look]);
 
-  const look: Look = useMemo(() => {
-    const base = defaultLook(parts);
-    const saved = looks[key];
-    return saved ? { enabled: { ...base.enabled, ...saved.enabled } } : base;
-  }, [parts, looks, key]);
-
-  useEffect(() => viewerRef.current?.applyLook(look), [look]);
-
-  const onToggle = (id: string, on: boolean) => setLook(key, togglePart(parts, look, id, on));
-  const doFrame = (f: Framing) => {
+  const frame = (f: Framing) => {
     setFraming(f);
     viewerRef.current?.frame(f);
   };
 
+  const groups = [...new Set(PARAMS.map((p) => p.group))];
+
   return (
     <div className="app">
       <section className="stage">
-        <div ref={hostRef} className="canvas-host" />
+        <div ref={host} className="canvas-host" />
         <div className="stage-top">
           <div className="seg">
-            {CHARACTERS.map((c) => (
-              <button key={c.id} className={c.id === character ? 'on' : ''} onClick={() => setCharacter(c.id)}>
-                {c.label}
-              </button>
-            ))}
-          </div>
-          <div className="seg">
-            <button className={framing === 'full' ? 'on' : ''} onClick={() => doFrame('full')}>全身</button>
-            <button className={framing === 'face' ? 'on' : ''} onClick={() => doFrame('face')}>脸部特写</button>
+            <button className={framing === 'full' ? 'on' : ''} onClick={() => frame('full')}>全身</button>
+            <button className={framing === 'face' ? 'on' : ''} onClick={() => frame('face')}>面部</button>
           </div>
         </div>
-        {src === 'placeholder' && (
-          <div className="ph-badge" role="note">PLACEHOLDER · 占位模型（代码生成，非最终美术）</div>
-        )}
-        {status.loading && <div className="toast">加载中…</div>}
-        {status.error && <div className="toast err" onClick={() => setStatus({ loading: false })}>⚠ {status.error}（已退回占位模型）</div>}
+        {!char && !error && <div className="toast">加载模型… {Math.round(progress * 100)}%</div>}
+        {error && <div className="toast err">加载失败：{error}</div>}
+        <div className="hint-bar">单指旋转 · 双指缩放</div>
       </section>
 
       <aside className="panel">
         <nav className="tabs">
-          <button className={tab === 'parts' ? 'on' : ''} onClick={() => setTab('parts')}>部件</button>
-          <button className={tab === 'saves' ? 'on' : ''} onClick={() => setTab('saves')}>存档</button>
-          <button className={tab === 'model' ? 'on' : ''} onClick={() => setTab('model')}>模型</button>
+          {([['face', '捏脸'], ['color', '颜色'], ['outfit', '服装'], ['save', '存档']] as [Tab, string][]).map(([k, l]) => (
+            <button key={k} className={tab === k ? 'on' : ''} onClick={() => { setTab(k); if (k === 'face' && framing !== 'face') frame('face'); }}>{l}</button>
+          ))}
         </nav>
         <div className="panel-body">
-          {tab === 'parts' && <PartsPanel parts={parts} look={look} onToggle={onToggle} onReset={() => setLook(key, defaultLook(parts))} />}
-          {tab === 'saves' && <SavesPanel look={look} onApply={(l) => setLook(key, l)} />}
-          {tab === 'model' && <ModelPanel onChanged={() => setVrmRev((n) => n + 1)} />}
+          {tab === 'face' && (
+            <>
+              {groups.map((g) => (
+                <div key={g}>
+                  <h3>{g}</h3>
+                  {PARAMS.filter((p) => p.group === g).map((p) => (
+                    <label key={p.key} className="slider">
+                      <span>{p.label}</span>
+                      <input
+                        type="range" min={p.min} max={p.max} step={0.01}
+                        value={look.face[p.key] ?? 0}
+                        onChange={(e) => setFace(p.key, +e.target.value)}
+                        data-param={p.key}
+                      />
+                      <output>{Math.round((look.face[p.key] ?? 0) * 100)}</output>
+                    </label>
+                  ))}
+                </div>
+              ))}
+              <button className="ghost wide" onClick={() => patch({ face: Object.fromEntries(PARAMS.map((p) => [p.key, 0])) })}>脸部归零</button>
+            </>
+          )}
+          {tab === 'color' && (
+            <>
+              <Swatches title="发色" list={HAIR} value={look.hairColor} onPick={(c) => patch({ hairColor: c })} />
+              <Swatches title="瞳色" list={EYES} value={look.eyeColor} onPick={(c) => patch({ eyeColor: c })} />
+            </>
+          )}
+          {tab === 'outfit' && (
+            <>
+              <h3>服装</h3>
+              {OUTFITS.map((o) => (
+                <button key={o.id} className={`option ${look.outfit === o.id ? 'on' : ''}`} onClick={() => patch({ outfit: o.id })} data-outfit={o.id}>
+                  {look.outfit === o.id ? '● ' : '○ '}{o.label}
+                </button>
+              ))}
+              {look.outfit === 'dress' && <Swatches title="连衣裙颜色" list={DRESS} value={look.dressColor} onPick={(c) => patch({ dressColor: c })} />}
+            </>
+          )}
+          {tab === 'save' && (
+            <>
+              <form className="row" onSubmit={(e) => { e.preventDefault(); save(name.trim() || `角色 ${slots.length + 1}`); setName(''); }}>
+                <input value={name} onChange={(e) => setName(e.target.value)} placeholder="存档名称" />
+                <button type="submit">保存</button>
+              </form>
+              <p className="hint">当前参数会自动保存在本机浏览器；命名存档可随时载入。</p>
+              <ul className="saves">
+                {slots.map((s) => (
+                  <li key={s.id}>
+                    <span className="name">{s.name}</span>
+                    <button onClick={() => load(s.id)}>载入</button>
+                    <button className="ghost" onClick={() => remove(s.id)}>删除</button>
+                  </li>
+                ))}
+              </ul>
+              <button className="ghost wide" onClick={reset}>全部恢复默认</button>
+            </>
+          )}
         </div>
       </aside>
+    </div>
+  );
+}
+
+function Swatches({ title, list, value, onPick }: { title: string; list: string[]; value: string; onPick(c: string): void }) {
+  return (
+    <div>
+      <h3>{title}</h3>
+      <div className="swatches">
+        {list.map((c) => (
+          <button key={c} className={`sw ${c === value ? 'on' : ''}`} style={{ background: c }} onClick={() => onPick(c)} aria-label={c} />
+        ))}
+        <label className="sw custom" style={{ background: value }}>
+          <input type="color" value={value} onChange={(e) => onPick(e.target.value)} />
+        </label>
+      </div>
     </div>
   );
 }

@@ -1,0 +1,251 @@
+"""Generate a skinned one-piece dress for the base VRoid model, headless.
+
+Run: python make_dress.py -- <input.glb> <output.glb>
+(uses the `bpy` pip package = headless Blender 5.x)
+
+The dress is built from the model's own body surface so it fits:
+  * bodice  = torso + upper-arm skin, pushed out along normals (keeps the
+              body's skin weights, so it deforms with the arms/torso)
+  * skirt   = generated pleated flare from the waist to above the knee,
+              weighted to the hips/upper legs by height
+  * collar  = round (Peter-Pan-style) collar ring lying on the shoulders
+  * waistband
+Exports only the garment + armature; the web app rebinds it to the
+avatar's skeleton by bone name.
+"""
+import sys
+import math
+import bpy
+import bmesh
+from mathutils import Vector
+
+argv = sys.argv[sys.argv.index("--") + 1:]
+src, dst = argv[0], argv[1]
+
+for o in list(bpy.data.objects):
+    bpy.data.objects.remove(o)
+bpy.ops.import_scene.gltf(filepath=src)
+
+arm = next(o for o in bpy.data.objects if o.type == "ARMATURE")
+body = bpy.data.objects["Body"]
+for o in list(bpy.data.objects):
+    if o not in (arm, body):
+        bpy.data.objects.remove(o)
+
+
+def bone_pos(name):
+    return arm.matrix_world @ arm.data.bones[name].head_local
+
+
+neck = bone_pos("J_Bip_C_Neck")
+hips = bone_pos("J_Bip_C_Hips")
+spine = bone_pos("J_Bip_C_Spine")
+l_upper_arm = bone_pos("J_Bip_L_UpperArm")
+l_lower_leg = bone_pos("J_Bip_L_LowerLeg")
+l_upper_leg = bone_pos("J_Bip_L_UpperLeg")
+print("landmarks", neck, hips, spine, l_upper_arm, l_lower_leg)
+
+waist_z = spine.z + 0.02
+sleeve_x = abs(l_upper_arm.x) + 0.11  # short puff-ish sleeve
+hem_z = l_lower_leg.z + 0.08          # just above the knee
+
+# ── bodice: copy torso skin ─────────────────────────────────────────────
+bodice = body.copy()
+bodice.data = body.data.copy()
+bodice.name = "Dress_Bodice"
+bpy.context.collection.objects.link(bodice)
+# VRoid deletes body skin hidden under clothes, so the bodice is cut from the
+# T-shirt mesh (complete torso + sleeves), not from the skin.
+skin_idx = [i for i, m in enumerate(bodice.data.materials) if "Tops" in m.name][0]
+
+bm = bmesh.new()
+bm.from_mesh(bodice.data)
+mw = bodice.matrix_world
+kill = []
+for f in bm.faces:
+    if f.material_index != skin_idx:
+        kill.append(f)
+        continue
+    c = mw @ f.calc_center_median()
+    if c.z < waist_z - 0.03 or c.z > neck.z - 0.005 or abs(c.x) > sleeve_x:
+        kill.append(f)
+bmesh.ops.delete(bm, geom=kill, context="FACES")
+bmesh.ops.delete(bm, geom=[v for v in bm.verts if not v.link_faces], context="VERTS")
+# tighten the loose T-shirt a little toward a fitted bodice
+for v in bm.verts:
+    v.co -= v.normal * 0.004
+bm.to_mesh(bodice.data)
+bm.free()
+bodice.data.materials.clear()
+def make_mat(name, rgb):
+    m = bpy.data.materials.new(name)
+    m.use_nodes = True
+    m.node_tree.nodes["Principled BSDF"].inputs["Base Color"].default_value = (*rgb, 1)
+    return m
+
+
+dress_mat = make_mat("Dress_CLOTH", (0.03, 0.04, 0.09))
+bodice.data.materials.append(dress_mat)
+
+# measure the bodice at the waist to size the skirt
+co = [mw @ v.co for v in bodice.data.vertices]
+ring = [p for p in co if abs(p.z - waist_z) < 0.02 and abs(p.x) < 0.2]
+wx = max(abs(p.x) for p in ring)
+wy = max(abs(p.y - hips.y) for p in ring)
+cy = sum(p.y for p in ring) / len(ring)
+print("waist", waist_z, wx, wy)
+
+# ── skirt: pleated flare ───────────────────────────────────────────────
+def make_ring_mesh(name, rows, seg, fn):
+    bm = bmesh.new()
+    grid = []
+    for j in range(rows + 1):
+        row = []
+        for i in range(seg):
+            row.append(bm.verts.new(fn(i / seg, j / rows)))
+        grid.append(row)
+    for j in range(rows):
+        for i in range(seg):
+            a, b = grid[j][i], grid[j][(i + 1) % seg]
+            c, d = grid[j + 1][(i + 1) % seg], grid[j + 1][i]
+            bm.faces.new((a, d, c, b))
+    me = bpy.data.meshes.new(name)
+    bm.to_mesh(me)
+    bm.free()
+    ob = bpy.data.objects.new(name, me)
+    bpy.context.collection.objects.link(ob)
+    return ob
+
+
+top_z = waist_z + 0.01
+hip_z = l_upper_leg.z
+pleats = 16
+
+
+def skirt_pt(u, v):
+    a = u * 2 * math.pi
+    z = top_z + (hem_z - top_z) * v
+    # radius profile: waist → over the hips → flared hem
+    hip_t = min(1.0, (top_z - z) / max(0.01, top_z - hip_z + 0.04))
+    rx = wx + 0.025 + 0.055 * hip_t + 0.09 * max(0.0, v - 0.35)
+    ry = wy + 0.022 + 0.045 * hip_t + 0.08 * max(0.0, v - 0.35)
+    tri = abs(((u * pleats * 2) % 2) - 1)  # 0..1 triangle wave
+    k = 1 + (0.012 + 0.05 * v) * (tri - 0.5)
+    return Vector((math.sin(a) * rx * k, cy - math.cos(a) * ry * k, z))
+
+
+skirt = make_ring_mesh("Dress_Skirt", 14, pleats * 8, skirt_pt)
+skirt.data.materials.append(dress_mat)
+
+# waistband
+def band_pt(u, v):
+    a = u * 2 * math.pi
+    z = waist_z + 0.018 - 0.03 * v
+    return Vector((math.sin(a) * (wx + 0.03), cy - math.cos(a) * (wy + 0.026), z))
+
+
+band = make_ring_mesh("Dress_Waistband", 2, 96, band_pt)
+band_mat = make_mat("Waistband_CLOTH", (0.015, 0.02, 0.05))
+band.data.materials.append(band_mat)
+
+# collar: round collar lying on the shoulders, open at the front
+neck_r = 0.05
+coll_mat = make_mat("Collar_CLOTH", (0.92, 0.9, 0.84))
+body_eval = body.evaluated_get(bpy.context.evaluated_depsgraph_get())
+
+
+def shoulder_z(x, y):
+    # raycast down onto the body to drape the collar on the shoulder line
+    origin = Vector((x, y, neck.z + 0.004))  # start below the chin so the head isn't hit
+    inv = body.matrix_world.inverted()
+    ok, loc, n, idx = body_eval.ray_cast(inv @ origin, Vector((0, 0, -1)))
+    z = (body.matrix_world @ loc).z if ok else neck.z - 0.05
+    # in front of the chest the ray would fall to the waist: keep it on the shoulder line
+    return max(z, neck.z - 0.06)
+
+
+gap = 0.12
+
+
+def collar_pt(u, v):
+    a = gap + u * (2 * math.pi - 2 * gap)  # a=0 → front (-Y)
+    d = min(a, 2 * math.pi - a) - gap
+    lobe = 0.7
+    k = math.sqrt(max(0, 1 - ((lobe - d) / lobe) ** 2)) if d < lobe else 1
+    r = neck_r + (0.028 + 0.042 * k) * v
+    x, y = math.sin(a) * r, neck.y - math.cos(a) * r * 0.8
+    return Vector((x, y, shoulder_z(x, y) + 0.01))
+
+
+bm = bmesh.new()
+rows, seg = 6, 120
+grid = [[bm.verts.new(collar_pt(i / seg, j / rows)) for i in range(seg + 1)] for j in range(rows + 1)]
+for j in range(rows):
+    for i in range(seg):
+        bm.faces.new((grid[j][i], grid[j][i + 1], grid[j + 1][i + 1], grid[j + 1][i]))
+bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+me = bpy.data.meshes.new("Dress_Collar")
+bm.to_mesh(me)
+bm.free()
+collar = bpy.data.objects.new("Dress_Collar", me)
+bpy.context.collection.objects.link(collar)
+collar.data.materials.append(coll_mat)
+sol = collar.modifiers.new("thick", "SOLIDIFY")
+sol.thickness = 0.006
+sol.offset = 1
+
+# ── skin weights for generated parts ───────────────────────────────────
+def weight_by_height(ob, groups):
+    """groups: list of (bone, fn(world_pos) -> weight)"""
+    for bone, _ in groups:
+        if bone not in ob.vertex_groups:
+            ob.vertex_groups.new(name=bone)
+    for v in ob.data.vertices:
+        p = ob.matrix_world @ v.co
+        ws = [(b, max(0.0, fn(p))) for b, fn in groups]
+        tot = sum(w for _, w in ws) or 1
+        for b, w in ws:
+            if w > 0:
+                ob.vertex_groups[b].add([v.index], w / tot, "REPLACE")
+
+
+def leg_share(p, side):
+    t = max(0.0, min(1.0, (hip_z - p.z) / (hip_z - hem_z)))
+    s = (p.x * side > 0)
+    return 0.45 * t * (1.0 if s else 0.2)
+
+
+weight_by_height(skirt, [
+    ("J_Bip_C_Hips", lambda p: 1.0),
+    ("J_Bip_L_UpperLeg", lambda p: leg_share(p, 1)),
+    ("J_Bip_R_UpperLeg", lambda p: leg_share(p, -1)),
+])
+weight_by_height(band, [("J_Bip_C_Spine", lambda p: 1.0)])
+weight_by_height(collar, [
+    ("J_Bip_C_UpperChest", lambda p: 1.0),
+    ("J_Bip_L_Shoulder", lambda p: max(0.0, p.x - 0.04) * 8),
+    ("J_Bip_R_Shoulder", lambda p: max(0.0, -p.x - 0.04) * 8),
+])
+
+for ob in (skirt, band, collar):
+    ob.parent = arm
+    mod = ob.modifiers.new("Armature", "ARMATURE")
+    mod.object = arm
+    for poly in ob.data.polygons:
+        poly.use_smooth = True
+
+# drop the original body from the export
+bpy.data.objects.remove(body)
+bpy.ops.object.select_all(action="DESELECT")
+for ob in (arm, bodice, skirt, band, collar):
+    ob.select_set(True)
+bpy.ops.export_scene.gltf(
+    filepath=dst,
+    export_format="GLB",
+    use_selection=True,
+    export_skins=True,
+    export_apply=True,  # bakes the solidify modifier
+    export_morph=False,
+    export_animations=False,
+)
+print("exported", dst)

@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
-    "shots": "node scripts/screenshot.mjs"
+    "test:e2e": "node scripts/e2e.mjs"
   },
   "dependencies": {
     "@pixiv/three-vrm": "^3.5.5",

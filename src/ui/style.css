@@ -91,3 +91,19 @@ ul.hint { padding-left: 18px; }
   .panel { width: 100%; flex: 1; border-left: none; border-top: 1px solid var(--line); border-radius: 14px 14px 0 0; margin-top: -10px; position: relative; z-index: 1; }
   .ph-badge { bottom: auto; top: calc(max(10px, env(safe-area-inset-top)) + 50px); font-size: 10.5px; padding: 3px 8px; }
 }
+
+/* editor controls */
+.slider { display: grid; grid-template-columns: 72px 1fr 34px; align-items: center; gap: 8px; margin: 2px 0; min-height: 40px; }
+.slider span { font-size: 13px; }
+.slider output { font-size: 12px; color: var(--muted); text-align: right; font-variant-numeric: tabular-nums; }
+input[type=range] { width: 100%; height: 32px; accent-color: var(--accent); background: transparent; border: none; padding: 0; }
+.swatches { display: flex; flex-wrap: wrap; gap: 10px; }
+.sw { width: 40px; height: 40px; min-height: 40px; border-radius: 50%; border: 2px solid rgba(255,255,255,.15); padding: 0; position: relative; overflow: hidden; }
+.sw.on { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent); }
+.sw.custom::after { content: '＋'; position: absolute; inset: 0; display: grid; place-items: center; color: #fff; text-shadow: 0 0 3px #000; pointer-events: none; }
+.sw.custom input { opacity: 0; position: absolute; inset: 0; width: 100%; height: 100%; }
+.option { display: block; width: 100%; text-align: left; margin-bottom: 6px; }
+.option.on { border-color: var(--accent); background: #2e2a22; }
+button.wide { width: 100%; margin-top: 14px; }
+.hint-bar { position: absolute; bottom: 10px; left: 50%; transform: translateX(-50%); font-size: 12px; color: #6b6478; pointer-events: none; }
+.toast { color: var(--text); }

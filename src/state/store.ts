@@ -1,59 +1,59 @@
 import { create } from 'zustand';
 import { createJSONStorage, persist, type StateStorage } from 'zustand/middleware';
 import { del, get, set } from 'idb-keyval';
-import type { AvatarSource, CharacterId, Look, SavedLook } from '../data/types';
+import { defaultFaceParams } from '../engine/faceShape';
+import type { Look } from '../engine/character';
 
-const idbStorage: StateStorage = {
+const idb: StateStorage = {
   getItem: async (k) => (await get<string>(k)) ?? null,
   setItem: (k, v) => set(k, v),
   removeItem: (k) => del(k),
 };
 
-export const lookKey = (c: CharacterId, s: AvatarSource) => `${c}:${s}`;
+export const defaultLook = (): Look => ({
+  face: defaultFaceParams(),
+  hairColor: '#8a5a3c',
+  eyeColor: '#8a5a2e',
+  outfit: 'casual',
+  dressColor: '#2c3550',
+});
+
+export interface Slot {
+  id: string;
+  name: string;
+  look: Look;
+  savedAt: number;
+}
 
 interface State {
-  character: CharacterId;
-  source: Record<CharacterId, AvatarSource>;
-  looks: Record<string, Look>;
-  saved: SavedLook[];
-  setCharacter(c: CharacterId): void;
-  setSource(c: CharacterId, s: AvatarSource): void;
-  setLook(key: string, look: Look): void;
-  saveLook(name: string, look: Look): void;
-  deleteSaved(id: string): void;
+  look: Look;
+  slots: Slot[];
+  setFace(key: string, v: number): void;
+  patch(p: Partial<Look>): void;
+  reset(): void;
+  save(name: string): void;
+  load(id: string): void;
+  remove(id: string): void;
 }
 
 export const useStore = create<State>()(
   persist(
     (setS, getS) => ({
-      character: 'letha',
-      source: { letha: 'placeholder', phicia: 'placeholder' },
-      looks: {},
-      saved: [],
-      setCharacter: (character) => setS({ character }),
-      setSource: (c, s) => setS({ source: { ...getS().source, [c]: s } }),
-      setLook: (key, look) => setS({ looks: { ...getS().looks, [key]: look } }),
-      saveLook: (name, look) => {
-        const { character, source } = getS();
-        const entry: SavedLook = {
-          id: `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`,
-          name,
-          character,
-          source: source[character],
-          look,
-          createdAt: Date.now(),
-        };
-        setS({ saved: [entry, ...getS().saved] });
+      look: defaultLook(),
+      slots: [],
+      setFace: (key, v) => setS({ look: { ...getS().look, face: { ...getS().look.face, [key]: v } } }),
+      patch: (p) => setS({ look: { ...getS().look, ...p } }),
+      reset: () => setS({ look: defaultLook() }),
+      save: (name) =>
+        setS({
+          slots: [{ id: Date.now().toString(36), name, look: structuredClone(getS().look), savedAt: Date.now() }, ...getS().slots],
+        }),
+      load: (id) => {
+        const s = getS().slots.find((x) => x.id === id);
+        if (s) setS({ look: { ...defaultLook(), ...structuredClone(s.look), face: { ...defaultFaceParams(), ...s.look.face } } });
       },
-      deleteSaved: (id) => setS({ saved: getS().saved.filter((s) => s.id !== id) }),
+      remove: (id) => setS({ slots: getS().slots.filter((x) => x.id !== id) }),
     }),
-    { name: 'letha-phicia/v1', storage: createJSONStorage(() => idbStorage), version: 1 },
+    { name: 'charmaker/v1', storage: createJSONStorage(() => idb), version: 1 },
   ),
 );
-
-// User VRM files live in IndexedDB as raw bytes (too big for the JSON state).
-export const vrmFiles = {
-  put: (c: CharacterId, data: ArrayBuffer, name: string) => set(`vrm:${c}`, { data, name }),
-  get: (c: CharacterId) => get<{ data: ArrayBuffer; name: string }>(`vrm:${c}`),
-  remove: (c: CharacterId) => del(`vrm:${c}`),
-};
