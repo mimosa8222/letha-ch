@@ -4,6 +4,7 @@ import { MToonMaterial, VRMLoaderPlugin, VRMUtils, type VRM } from '@pixiv/three
 import { FaceShaper, type FaceParams } from './faceShape';
 import { ProceduralHair, defaultHair, type HairStyle } from './hair';
 import { morphWeights } from './faceMorphs';
+import { defaultEye, eyeKey, paintIris, type EyeStyle } from './eyes';
 import type { Subject } from './viewer';
 
 const MODELS = `${import.meta.env.BASE_URL}models/`;
@@ -57,6 +58,7 @@ export interface Look {
   eyeColor: string;
   outfit: string;
   hair: HairStyle;
+  eye: EyeStyle;
   dressColor: string;
 }
 
@@ -99,6 +101,11 @@ export class Character implements Subject {
   private garments = new Map<string, THREE.Object3D>();
   private hairMats: MToonMaterial[] = [];
   private irisMats: MToonMaterial[] = [];
+  private irisGrey: { map: THREE.Texture | null; shade: THREE.Texture | null }[] = [];
+  private irisCanvas = document.createElement('canvas');
+  private irisTex: THREE.CanvasTexture | null = null;
+  private highlightMeshes: THREE.Mesh[] = [];
+  private eyeKeyCur = '';
   private garmentMats: MToonMaterial[] = [];
   private blinkT = 0;
   readonly hair = new ProceduralHair();
@@ -155,6 +162,8 @@ export class Character implements Subject {
     });
     this.hairMats.push(this.hair.material);
     for (const mesh of find(/EyeIris/)) for (const m of [mesh.material].flat()) this.prepTint(m as MToonMaterial, this.irisMats, 1.6);
+    this.irisGrey = this.irisMats.map((m) => ({ map: m.map, shade: m.shadeMultiplyTexture }));
+    this.highlightMeshes = find(/EyeHighlight/);
 
     const box = new THREE.Box3().setFromObject(vrm.scene);
     this.height = box.max.y - box.min.y;
@@ -237,6 +246,37 @@ export class Character implements Subject {
     return group;
   }
 
+  /** Iris style: original texture (tinted) or a procedurally painted anime iris. */
+  setEyes(eye: EyeStyle, color: string) {
+    const key = eyeKey(eye, color);
+    if (key === this.eyeKeyCur) return;
+    this.eyeKeyCur = key;
+    for (const m of this.highlightMeshes) m.visible = eye.highlight === 'original' && eye.iris !== 'hollow';
+    if (eye.iris === 'original' && eye.highlight === 'original') {
+      this.irisMats.forEach((m, i) => {
+        m.map = this.irisGrey[i].map;
+        m.shadeMultiplyTexture = this.irisGrey[i].shade;
+      });
+      this.tint(this.irisMats, color, 0.55);
+      return;
+    }
+    paintIris(this.irisCanvas, eye, color, this.irisGrey[0]?.map?.image as CanvasImageSource | undefined);
+    if (!this.irisTex) {
+      this.irisTex = new THREE.CanvasTexture(this.irisCanvas);
+      this.irisTex.colorSpace = THREE.SRGBColorSpace;
+      this.irisTex.flipY = false;
+      this.irisTex.anisotropy = 4;
+    }
+    this.irisTex.needsUpdate = true;
+    for (const m of this.irisMats) {
+      m.map = this.irisTex;
+      m.shadeMultiplyTexture = this.irisTex;
+      m.color.set('#ffffff');
+      m.shadeColorFactor?.setRGB(0.86, 0.84, 0.9); // keep painted colours, only a light shade
+      m.needsUpdate = true;
+    }
+  }
+
   setHair(style: HairStyle) {
     const custom = style.mode === 'custom';
     for (const m of this.originalHair) m.visible = !custom;
@@ -250,7 +290,7 @@ export class Character implements Subject {
     this.shaper.apply(look.face);
     this.tint(this.hairMats, look.hairColor);
     this.hair.outline.uniforms.color.value.set(look.hairColor).multiplyScalar(0.35);
-    this.tint(this.irisMats, look.eyeColor, 0.55);
+    this.setEyes({ ...defaultEye(), ...look.eye }, look.eyeColor);
     await this.setOutfit(look.outfit);
     for (const m of this.garmentMats) {
       const isBand = /Waistband/i.test(m.name);

@@ -6,6 +6,7 @@
 |---|---|---|---|
 | `public/models/base.vrm` | pixiv 官方样例 `VRM1_Constraint_Twist_Sample.vrm`，取自 [pixiv/three-vrm v3.5.5](https://github.com/pixiv/three-vrm/tree/v3.5.5/packages/three-vrm/examples/models)（经 jsDelivr 下载） | VRM Public License 1.0（[vrm.dev/licenses/1.0](https://vrm.dev/licenses/1.0/)）；文件内元数据：`modification: allowModificationRedistribution`、`allowRedistribution: true`、`creditNotation: unnecessary`、`commercialUsage: corporation`，© 2022 pixiv Inc. | 二次元底模：身体、脸、头发、眼睛、T 恤、短裤、鞋，带骨骼和 58 个表情形态键 |
 | `public/models/dress.glb` | 由 `tools/blender/make_dress.py` 用无界面 Blender（pip 包 `bpy` 5.2.3）从上面的底模生成 | 属于底模的修改作品，许可同上 | 连衣裙：上身取自底模 T 恤网格（向内收紧）+ 程序生成的百褶裙摆 + 圆领 + 腰带，绑定在同一套骨骼上 |
+| 程序化瞳孔贴图 | `src/engine/eyes.ts` 运行时绘制 | 自制，无第三方素材 | 7 种瞳孔样式（宝石、清澈、电波圈、星星、爱心、猫眼竖瞳、无神）× 5 种高光，双色渐变；画在原瞳孔贴图被 UV 采样的椭圆区域内，原版贴图仍可选 |
 | 程序化发型 | `src/engine/hair.ts` 运行时生成 | 自制，无第三方素材 | 前发 5 种、侧发 4 种、后发 7 种，可自由组合；发束是扁平渐尖的发片，生长时会和头骨、脖子、肩膀、身体做碰撞 |
 
 ## 比较过但没有采用的

@@ -2,14 +2,16 @@ import { useEffect, useRef, useState } from 'react';
 import { Character, OUTFITS } from '../engine/character';
 import { PARAMS } from '../engine/faceShape';
 import { FACE_PRESETS, MORPH_PARAMS } from '../engine/faceMorphs';
+import { HIGHLIGHT_STYLES, IRIS_STYLES, defaultEye } from '../engine/eyes';
 import { BACK_STYLES, FRONT_STYLES, SIDE_STYLES, defaultHair } from '../engine/hair';
 import { Viewer, type Framing } from '../engine/viewer';
 import { useStore } from '../state/store';
 
-type Tab = 'face' | 'hair' | 'color' | 'outfit' | 'save';
+type Tab = 'face' | 'eye' | 'hair' | 'color' | 'outfit' | 'save';
 
 const HAIR = ['#8a5a3c', '#e2c27a', '#c8a07a', '#2b2326', '#d9d6d2', '#c46a7a', '#5a6fa8'];
 const EYES = ['#8a5a2e', '#6f8fb0', '#b97a9c', '#4f8a64', '#c9a227', '#9a3a3a', '#3c3550'];
+const EYES2 = ['#e3b77a', '#bfe3f2', '#f4c2d8', '#c8e6a0', '#fff1a8', '#f2a07a', '#a9a3d6'];
 const DRESS = ['#2c3550', '#6d7a4e', '#b8913a', '#8a7a6a', '#9c3b2f', '#e8ddd0', '#202024'];
 
 declare global {
@@ -24,7 +26,8 @@ export function App() {
   const [error, setError] = useState<string | null>(null);
   const [framing, setFraming] = useState<Framing>('full');
   const [tab, setTab] = useState<Tab>('face');
-  const { look, setFace, setHair, patch, reset, slots, save, load, remove } = useStore();
+  const { look, setFace, setHair, setEye, patch, reset, slots, save, load, remove } = useStore();
+  const eye = { ...defaultEye(), ...look.eye };
   const hair = { ...defaultHair(), ...look.hair };
   const [name, setName] = useState('');
 
@@ -75,7 +78,7 @@ export function App() {
 
       <aside className="panel">
         <nav className="tabs">
-          {([['face', '捏脸'], ['hair', '发型'], ['color', '颜色'], ['outfit', '服装'], ['save', '存档']] as [Tab, string][]).map(([k, l]) => (
+          {([['face', '捏脸'], ['eye', '眼睛'], ['hair', '发型'], ['color', '发色'], ['outfit', '服装'], ['save', '存档']] as [Tab, string][]).map(([k, l]) => (
             <button key={k} className={tab === k ? 'on' : ''} onClick={() => { setTab(k); if (k === 'face' && framing !== 'face') frame('face'); }}>{l}</button>
           ))}
         </nav>
@@ -141,10 +144,27 @@ export function App() {
               <p className="hint">发色在「颜色」页调整。</p>
             </>
           )}
+          {tab === 'eye' && (
+            <>
+              <Chips title="瞳孔样式" list={IRIS_STYLES} value={eye.iris} onPick={(v) => setEye({ iris: v })} id="iris" />
+              <Chips title="高光" list={HIGHLIGHT_STYLES} value={eye.highlight} onPick={(v) => setEye({ highlight: v })} id="hl" />
+              <Swatches title="瞳色（上）" list={EYES} value={look.eyeColor} onPick={(c) => patch({ eyeColor: c })} />
+              <Swatches title="瞳色（下渐变）" list={EYES2} value={eye.color2} onPick={(c) => setEye({ color2: c })} />
+              <h3>大小与位置</h3>
+              <Range label="瞳仁大小" value={eye.pupil} min={0.5} max={1.5} onChange={(v) => setEye({ pupil: v })} id="pupil" />
+              {PARAMS.filter((p) => p.key === 'irisSize' || p.key === 'irisHeight').map((p) => (
+                <label key={p.key} className="slider">
+                  <span>{p.label}</span>
+                  <input type="range" min={p.min} max={p.max} step={0.01} value={look.face[p.key] ?? 0} onChange={(e) => setFace(p.key, +e.target.value)} />
+                  <output>{Math.round((look.face[p.key] ?? 0) * 100)}</output>
+                </label>
+              ))}
+              <p className="hint">「原版」使用模型自带的瞳孔贴图；其他样式由程序绘制，可以搭配任意高光和双色渐变。</p>
+            </>
+          )}
           {tab === 'color' && (
             <>
               <Swatches title="发色" list={HAIR} value={look.hairColor} onPick={(c) => patch({ hairColor: c })} />
-              <Swatches title="瞳色" list={EYES} value={look.eyeColor} onPick={(c) => patch({ eyeColor: c })} />
             </>
           )}
           {tab === 'outfit' && (

@@ -4,6 +4,7 @@ import { del, get, set } from 'idb-keyval';
 import { defaultFaceParams } from '../engine/faceShape';
 import type { Look } from '../engine/character';
 import { defaultHair, type HairStyle } from '../engine/hair';
+import { defaultEye, type EyeStyle } from '../engine/eyes';
 
 const idb: StateStorage = {
   getItem: async (k) => (await get<string>(k)) ?? null,
@@ -18,6 +19,7 @@ export const defaultLook = (): Look => ({
   outfit: 'casual',
   dressColor: '#2c3550',
   hair: defaultHair(),
+  eye: defaultEye(),
 });
 
 export interface Slot {
@@ -32,6 +34,7 @@ interface State {
   slots: Slot[];
   setFace(key: string, v: number): void;
   setHair(p: Partial<HairStyle>): void;
+  setEye(p: Partial<EyeStyle>): void;
   patch(p: Partial<Look>): void;
   reset(): void;
   save(name: string): void;
@@ -46,6 +49,7 @@ export const useStore = create<State>()(
       slots: [],
       setFace: (key, v) => setS({ look: { ...getS().look, face: { ...getS().look.face, [key]: v } } }),
       setHair: (p) => setS({ look: { ...getS().look, hair: { ...defaultHair(), ...getS().look.hair, ...p } } }),
+      setEye: (p) => setS({ look: { ...getS().look, eye: { ...defaultEye(), ...getS().look.eye, ...p } } }),
       patch: (p) => setS({ look: { ...getS().look, ...p } }),
       reset: () => setS({ look: defaultLook() }),
       save: (name) =>
@@ -54,7 +58,7 @@ export const useStore = create<State>()(
         }),
       load: (id) => {
         const s = getS().slots.find((x) => x.id === id);
-        if (s) setS({ look: { ...defaultLook(), ...structuredClone(s.look), face: { ...defaultFaceParams(), ...s.look.face }, hair: { ...defaultHair(), ...s.look.hair } } });
+        if (s) setS({ look: { ...defaultLook(), ...structuredClone(s.look), face: { ...defaultFaceParams(), ...s.look.face }, hair: { ...defaultHair(), ...s.look.hair }, eye: { ...defaultEye(), ...s.look.eye } } });
       },
       remove: (id) => setS({ slots: getS().slots.filter((x) => x.id !== id) }),
     }),
@@ -66,7 +70,7 @@ export const useStore = create<State>()(
       merge: (persisted, current) => {
         const p = (persisted ?? {}) as Partial<State>;
         const d = defaultLook();
-        const look = { ...d, ...p.look, face: { ...d.face, ...p.look?.face }, hair: { ...d.hair, ...p.look?.hair } };
+        const look = { ...d, ...p.look, face: { ...d.face, ...p.look?.face }, hair: { ...d.hair, ...p.look?.hair }, eye: { ...d.eye, ...p.look?.eye } };
         return { ...current, ...p, look };
       },
     },

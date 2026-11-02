@@ -17,7 +17,7 @@ import * as THREE from 'three';
  * To add a parameter: append to PARAMS with an `apply` that edits `p` in place.
  */
 
-export type Tag = 'brow' | 'eye' | 'skin' | 'hair';
+export type Tag = 'brow' | 'eye' | 'iris' | 'skin' | 'hair';
 
 export interface Landmarks {
   eyeL: THREE.Vector3;
@@ -118,6 +118,15 @@ export const PARAMS: ParamDef[] = [
     } },
   { key: 'eyeVertical', label: '眼睛纵向', group: '眼睛', min: -1, max: 1,
     apply(p, v, L, tag) { eachEye(p, L, tag, (c, w) => { p.y += (p.y - c.y) * 0.25 * v * w; }); } },
+  { key: 'irisSize', label: '瞳孔大小', group: '眼睛', min: -1, max: 1,
+    apply(p, v, L, tag) {
+      if (tag !== 'iris') return;
+      const c = p.x >= 0 ? L.eyeL : L.eyeR;
+      p.x += (p.x - c.x) * 0.22 * v;
+      p.y += (p.y - c.y) * 0.22 * v;
+    } },
+  { key: 'irisHeight', label: '瞳孔上下', group: '眼睛', min: -1, max: 1,
+    apply(p, v, _L, tag) { if (tag === 'iris') p.y += 0.004 * v; } },
   { key: 'eyeSpacing', label: '眼距', group: '眼睛', min: -1, max: 1,
     apply(p, v, L, tag) {
       eachEye(p, L, tag, (_c, _w, side) => {
@@ -243,6 +252,7 @@ const tagOf = (m: THREE.Mesh): Tag => {
   const n = [m.material].flat()[0]?.name ?? '';
   if (/Brow/i.test(n)) return 'brow';
   if (/HAIR/i.test(n)) return 'hair';
+  if (/EyeIris|EyeHighlight/i.test(n)) return 'iris';
   if (/EYE|Eyeline/i.test(n)) return 'eye';
   return 'skin';
 };

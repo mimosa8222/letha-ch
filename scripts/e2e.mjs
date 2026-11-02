@@ -115,9 +115,33 @@ void hairFollowsFace;
 await shot('05a-hair-blunt-bob');
 
 // ── colors ──
-await page.click('nav.tabs button:has-text("颜色")');
+await page.click('nav.tabs button:has-text("发色")');
 await page.locator('.swatches').nth(0).locator('button').nth(1).click(); // blonde
-await page.locator('.swatches').nth(1).locator('button').nth(1).click(); // grey-blue
+// ── eyes ──
+await page.click('nav.tabs button:has-text("眼睛")');
+const eyeState = () => page.evaluate(() => {
+  const c = window.app.character; let hl = null;
+  c.root.traverse((o) => { if (o.isMesh && /EyeHighlight/.test([o.material].flat()[0].name)) hl = o.visible; });
+  return { painted: c['irisMats'][0].map === c['irisTex'], hl };
+});
+await page.click('[data-hair="iris:original"]');
+await page.click('[data-hair="hl:original"]');
+let es = await eyeState();
+check('original iris uses model texture + highlight mesh', !es.painted && es.hl === true, JSON.stringify(es));
+const irisSigs = new Set();
+for (const st of ['gem', 'clear', 'ring', 'star', 'heart', 'slit', 'hollow']) {
+  await page.click(`[data-hair="iris:${st}"]`);
+  await page.waitForTimeout(60);
+  irisSigs.add(await page.evaluate(() => { const c = document.createElement('canvas'); const src = window.app.character['irisCanvas']; const d = src.getContext('2d').getImageData(655, 135, 222, 252).data; let h = 0; for (let i = 0; i < d.length; i += 97) h = (h * 31 + d[i]) >>> 0; void c; return h; }));
+}
+check('7 painted iris styles all differ', irisSigs.size === 7, `${irisSigs.size} distinct`);
+await page.click('[data-hair="iris:gem"]');
+await page.click('[data-hair="hl:double"]');
+es = await eyeState();
+check('painted iris replaces texture, baked highlight hides mesh', es.painted && es.hl === false, JSON.stringify(es));
+await page.locator('.swatches').nth(0).locator('button').nth(1).click(); // grey-blue top
+await page.locator('.swatches').nth(1).locator('button').nth(1).click(); // light-blue bottom
+await shot('05b-eyes-gem');
 await page.waitForTimeout(300);
 const hair = await page.evaluate(() => window.app.character['hairMats'][0].color.getHexString());
 check('hair color applied to material', hair === 'e2c27a', hair);
