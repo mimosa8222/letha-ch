@@ -26,7 +26,7 @@ export interface HairStyle {
 }
 
 export const defaultHair = (): HairStyle => ({
-  mode: 'custom', front: 'uneven', side: 'frame', back: 'flipbob', frontLen: 1, sideLen: 1, backLen: 1, volume: 0.5, headband: true, pins: true,
+  mode: 'custom', front: 'uneven', side: 'frame', back: 'cutbob', frontLen: 1, sideLen: 1, backLen: 1, volume: 0.5, headband: true, pins: true,
 });
 
 export const FRONT_STYLES = [
@@ -36,6 +36,7 @@ export const SIDE_STYLES = [
   ['none', '无'], ['frame', '触角（顺脸外卷）'], ['short', '短鬓发'], ['long', '长鬓发'], ['hime', '公主切'],
 ] as const;
 export const BACK_STYLES = [
+  ['cutbob', '一体剪裁外翘波波（推荐）'],
   ['flipbob', '菱形外翘波波头'], ['short', '短发'], ['bob', '波波头'], ['medium', '中长发'], ['long', '长直发'],
   ['ponytail', '高马尾'], ['twintail', '双马尾'], ['bun', '丸子头'],
 ] as const;
@@ -296,6 +297,69 @@ function tail(tie: THREE.Vector3, back: THREE.Vector3, len: number, n: number, s
     out.push({
       az: 0, el: 0, w: 0.016, start: tie.clone().add(off), startDir: back.clone().add(off.clone().multiplyScalar(8)).normalize(),
       len: len * (0.85 + 0.3 * rnd(i + seed * 3)), gravity: 0.32, layer: 1.0, curl: 0.25,
+    });
+  }
+  return out;
+}
+
+/**
+ * A whole haircut grown like real hair: every outer strand starts at one crown
+ * whorl (つむじ) and flows outward over the head in its own direction, so the
+ * top has no root seams; strand length comes from ONE continuous cut line
+ * around the head — short choppy bangs in front, easing through the temples
+ * into face-framing pieces, then the chin-length outward-flicked bob at the
+ * back — so there is no step where bangs, sides and back meet. Width, curl and
+ * the diamond silhouette blend smoothly with the angle as well.
+ */
+function cutBob(frontL: number, sideL: number, backL: number): StrandSpec[] {
+  const out: StrandSpec[] = [];
+  const whorl = onSkull(Math.PI, 0.14 * Math.PI, 1.0);
+  const browY = 1.485;
+  const smooth = (a: number, b: number, x: number) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+  // 0 = centre front, 1 = back
+  const backness = (az: number) => smooth(0.85, 1.6, Math.abs(az));
+  const sideness = (az: number) => smooth(0.7, 1.05, Math.abs(az)) * (1 - smooth(1.25, 1.7, Math.abs(az)));
+  const cutY = (az: number, i: number) => {
+    const bangs = browY + 0.008 - (frontL - 1) * 0.05 + (rnd(Math.floor(i / 2) * 3 + 7) - 0.4) * 0.026; // choppy, in pairs
+    const frame = 1.39 - (sideL - 1) * 0.06;
+    const bob = 1.355 - (backL - 1) * 0.06 + (rnd(i * 5) - 0.5) * 0.014;
+    const b = backness(az), sd = sideness(az);
+    return (bangs * (1 - b) + bob * b) * (1 - sd) + frame * sd;
+  };
+  const N = 72;
+  for (let i = 0; i < N; i++) {
+    const az = -Math.PI + ((i + 0.5) / N) * 2 * Math.PI + (rnd(i + 3) - 0.5) * 0.03;
+    const b = backness(az), sd = sideness(az);
+    // start a little way out from the whorl, heading in this strand's direction
+    const target = onSkull(az, 0.32 * Math.PI, 1.0);
+    const dir = target.clone().sub(whorl);
+    const n = whorl.clone().sub(SKULL_C).normalize();
+    dir.addScaledVector(n, -dir.dot(n)).normalize();
+    const start = whorl.clone().addScaledVector(dir, 0.012);
+    const front = 1 - Math.max(b, sd);
+    out.push({
+      az, el: 0.14 * Math.PI, start, startDir: dir, gravity: 0.22,
+      w: 0.017 + 0.022 * b + 0.006 * sd,
+      stopY: cutY(az, i),
+      layer: 1.06 + 0.012 * rnd(i + 11),
+      curl: 0.18 * front + 0.8 * sd + 0.95 * b * ((i % 4 === 0) ? 0.55 : 1), // bangs flick forward, sides & back flick out
+      drift: front * (rnd(i * 2 + 1) - 0.5) * 0.3,
+      wave: 0.0015 + 0.003 * b,
+      diamond: b > 0.2 || sd > 0.2 ? { full: 0.024 * Math.max(b, sd), pinch: 0.013 * Math.max(b, sd), tipY: 1.355 } : undefined,
+    });
+  }
+  // under-layers: volume and coverage, hidden beneath the outer flow
+  for (let i = 0; i < 40; i++) {
+    const az = -Math.PI + ((i + 0.5) / 40) * 2 * Math.PI;
+    const b = backness(az), sd = sideness(az);
+    if (b + sd < 0.05) {
+      // forehead under-layer so the skin never shows between bang wisps
+      out.push({ az, el: 0.17 * Math.PI, w: 0.026, stopY: cutY(az, i) + 0.012, layer: 1.035 });
+      continue;
+    }
+    out.push({
+      az, el: 0.36 * Math.PI, w: 0.04, stopY: cutY(az, i) + 0.01, layer: 1.035,
+      curl: -0.2 * b, wave: 0.003, diamond: { full: 0.014 * b, pinch: 0.01 * b, tipY: 1.365 },
     });
   }
   return out;
@@ -567,11 +631,15 @@ export class ProceduralHair {
     capGeometry(style, pos, nor, uv, idx);
     if (style.back === 'bun') bunGeometry(pos, nor, uv, idx);
     fill(0, 0.74); // scalp cap / bun: darkest, underneath everything
-    const specs = [
-      ...backStrands(style.back, style.backLen),
-      ...sideStrands(style.side, style.sideLen),
-      ...frontStrands(style.front, style.frontLen),
-    ];
+    // 'cutbob' is a whole haircut (front + sides + back from one crown whorl
+    // and one continuous cut line), so it ignores the separate front/side picks
+    const specs = style.back === 'cutbob'
+      ? cutBob(style.frontLen, style.sideLen, style.backLen)
+      : [
+          ...backStrands(style.back, style.backLen),
+          ...sideStrands(style.side, style.sideLen),
+          ...frontStrands(style.front, style.frontLen),
+        ];
     const lens: number[] = [];
     specs.forEach((sp, i) => {
       const pts = growStrand(sp, style.volume);

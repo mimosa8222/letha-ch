@@ -26,7 +26,7 @@ await page.goto(base);
 await ready();
 await page.evaluate(() => { window.app.character.physicsEnabled = false; });
 check('model loads', true);
-const lethaDefault = await page.evaluate(() => ({ back: window.app.character.hair['key'].includes('flipbob'), radio: !!window.app.character.root.getObjectByName('props:radio')?.visible }));
+const lethaDefault = await page.evaluate(() => ({ back: window.app.character.hair['key'].includes('cutbob'), radio: !!window.app.character.root.getObjectByName('props:radio')?.visible }));
 check('default look is Letha (flip bob + radio)', lethaDefault.back && lethaDefault.radio, JSON.stringify(lethaDefault));
 await page.click('nav.tabs button:has-text("捏脸")');
 await page.click('button:has-text("脸部归零")');
@@ -88,10 +88,12 @@ await shot('04-face-cute-preset');
 // ── hairstyles ──
 await page.click('nav.tabs button:has-text("发型")');
 const verts = () => page.evaluate(() => { const a = window.app.character.hair.mesh.geometry.attributes.position; let s = 0; for (let i = 1; i < a.array.length; i += 3) s += a.array[i]; return a.count + ':' + s.toFixed(3); });
+await page.click('[data-hair="back:medium"]'); // cutbob ignores front/side picks; test them on a regular back style
+await page.waitForTimeout(80);
 const v0 = await verts();
 check('procedural hair generated', parseInt(v0) > 1000, `${v0.split(':')[0]} verts`);
 const seen = new Set([v0]);
-for (const k of ['front:blunt', 'front:center', 'side:long', 'side:hime', 'back:bob', 'back:long', 'back:ponytail', 'back:twintail', 'back:bun']) {
+for (const k of ['front:blunt', 'front:center', 'side:long', 'side:hime', 'back:bob', 'back:long', 'back:ponytail', 'back:twintail', 'back:bun', 'back:cutbob']) {
   await page.click(`[data-hair="${k}"]`);
   await page.waitForTimeout(80);
   seen.add(await verts());

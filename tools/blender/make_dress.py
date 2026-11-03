@@ -81,7 +81,7 @@ for v in bm.verts:
     k = k * k * (3 - 2 * k)
     torso = 1 - max(0.0, min(1.0, (abs(w.x) - 0.1) / 0.05))  # fades out toward the sleeves
     # fitted 1960s bodice: clearly nipped waist, closer through the ribs
-    slim = torso * (0.1 + 0.12 * k)
+    slim = torso * (0.14 + 0.15 * k)  # closer fit through the ribs, clearly nipped waist
     v.co.x *= 1 - slim
     v.co.y = hips.y + (v.co.y - hips.y) * (1 - 0.75 * slim)
     # puff sleeves: push away from the arm axis (T-pose: arm runs along x), position-based
@@ -201,7 +201,7 @@ def skirt_pt(u, v):
     hip_t = min(1.0, (top_z - z) / max(0.01, top_z - hip_z + 0.04))
     hip_t = hip_t * hip_t * (3 - 2 * hip_t)
     # soft A-line: just clears the hips, then falls fairly straight
-    r = ring_r(a) + 0.004 + 0.022 * hip_t + 0.05 * v ** 1.6
+    r = ring_r(a) + 0.002 + 0.012 * hip_t + 0.038 * v ** 1.6  # skims the hips, slim A-line
     tri = abs(((u * pleats * 2) % 2) - 1)  # 0..1 triangle wave → knife pleats
     k = 1 + (0.003 + 0.035 * v) * (tri - 0.5)  # soft gathers, not stiff pleats
     return Vector((math.sin(a) * r * k, cy - math.cos(a) * r * k, z))

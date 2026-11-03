@@ -31,7 +31,7 @@ export const lethaLook = (): Look => ({
   eyeColor: '#7a8aa0',
   outfit: 'dress',
   dressColor: '#323d5e',
-  hair: { ...defaultHair(), front: 'uneven', side: 'frame', back: 'flipbob', headband: true, pins: true },
+  hair: { ...defaultHair(), front: 'uneven', side: 'frame', back: 'cutbob', headband: true, pins: true },
   eye: { ...defaultEye(), iris: 'gem', highlight: 'double', color2: '#d3dbe3', pupil: 0.75, lowerLash: true, liner: 0.7 },
   props: { radio: true },
   shoes: 'saddle',
